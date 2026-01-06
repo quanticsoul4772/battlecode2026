@@ -2,7 +2,7 @@ package mock;
 
 import battlecode.common.*;
 
-public class MockRobotController {
+public class MockRobotController implements RobotController {
     private MapLocation location;
     private Direction facing;
     private UnitType type;
@@ -51,6 +51,17 @@ public class MockRobotController {
         }
     }
 
+    public boolean canMove(Direction dir) {
+        return movementCooldown < 10 && gameState.isPassable(location.add(dir));
+    }
+
+    public void move(Direction dir) {
+        if (canMove(dir)) {
+            location = location.add(dir);
+            movementCooldown += (dir == facing) ? 10 : 18;
+        }
+    }
+
     public boolean canTurn() {
         return movementCooldown < 10;
     }
@@ -87,14 +98,30 @@ public class MockRobotController {
         }
     }
 
+    public RobotInfo[] senseNearbyRobots() {
+        return senseNearbyRobotsImpl(location, -1, null);
+    }
+
+    public RobotInfo[] senseNearbyRobots(int radiusSquared) {
+        return senseNearbyRobotsImpl(location, radiusSquared, null);
+    }
+
     public RobotInfo[] senseNearbyRobots(int radiusSquared, Team targetTeam) {
+        return senseNearbyRobotsImpl(location, radiusSquared, targetTeam);
+    }
+
+    public RobotInfo[] senseNearbyRobots(MapLocation center, int radiusSquared, Team targetTeam) {
+        return senseNearbyRobotsImpl(center, radiusSquared, targetTeam);
+    }
+
+    private RobotInfo[] senseNearbyRobotsImpl(MapLocation center, int radiusSquared, Team targetTeam) {
         if (radiusSquared == -1) radiusSquared = 10000;
 
         java.util.List<RobotInfo> result = new java.util.ArrayList<>();
         for (MockRobotController rc : gameState.getAllRobots()) {
             if (targetTeam != null && rc.team != targetTeam) continue;
 
-            int dist = location.distanceSquaredTo(rc.location);
+            int dist = center.distanceSquaredTo(rc.location);
             if (dist <= radiusSquared && rc != this) {
                 result.add(new RobotInfo(rc.id, rc.team, rc.type, rc.health, rc.location, rc.facing, 0, 0, null));
             }
@@ -146,4 +173,81 @@ public class MockRobotController {
             }
         }
     }
+
+    // Stub implementations for RobotController interface
+    public boolean isMovementReady() { return movementCooldown < 10; }
+    public boolean isTurningReady() { return movementCooldown < 10; }
+    public boolean isActionReady() { return actionCooldown < 10; }
+    public int getMovementCooldownTurns() { return Math.max(0, (movementCooldown - 10 + 9) / 10); }
+    public int getTurningCooldownTurns() { return Math.max(0, (movementCooldown - 10 + 9) / 10); }
+    public int getActionCooldownTurns() { return Math.max(0, (actionCooldown - 10 + 9) / 10); }
+    public void setIndicatorString(String s) {}
+    public void setIndicatorDot(MapLocation loc, int r, int g, int b) {}
+    public void setIndicatorLine(MapLocation a, MapLocation b, int r, int g, int blue) {}
+    public void setTimelineMarker(String msg, int r, int g, int b) {}
+    public RobotInfo senseRobotAtLocation(MapLocation loc) { return null; }
+    public boolean canSenseRobotAtLocation(MapLocation loc) { return true; }
+    public boolean canSenseRobot(int id) { return false; }
+    public RobotInfo senseRobot(int id) { return null; }
+    public boolean onTheMap(MapLocation loc) { return loc.x >= 0 && loc.x < gameState.getWidth() && loc.y >= 0 && loc.y < gameState.getHeight(); }
+    public Message[] readSqueaks() { return new Message[0]; }
+    public Message[] readSqueaks(int maxLength) { return new Message[0]; }
+    public void squeak(String msg) {}
+    public boolean squeak(int data) { return false; }
+    public boolean canAttack(MapLocation target) { return false; }
+    public boolean canAttack(MapLocation target, int cheeseAmount) { return false; }
+    public void attack(MapLocation target) {}
+    public void attack(MapLocation target, int cheeseAmount) {}
+    public RobotInfo getCarrying() { return null; }
+    public boolean isBeingCarried() { return false; }
+    public boolean canCarryRat(RobotInfo target) { return false; }
+    public void carryRat(RobotInfo target) {}
+    public boolean canCarryRat(MapLocation loc) { return false; }
+    public void carryRat(MapLocation loc) {}
+    public boolean canThrowRat(MapLocation target) { return false; }
+    public void throwRat(MapLocation target) {}
+    public boolean canThrowRat() { return false; }
+    public void throwRat() {}
+    public boolean canPlaceTrap(MapLocation loc, TrapType trapType) { return false; }
+    public void placeTrap(MapLocation loc, TrapType trapType) {}
+    public boolean canPlaceCatTrap(MapLocation loc) { return false; }
+    public void placeCatTrap(MapLocation loc) {}
+    public boolean canRemoveCatTrap(MapLocation loc) { return false; }
+    public void removeCatTrap(MapLocation loc) {}
+    public boolean canRemoveRatTrap(MapLocation loc) { return false; }
+    public void removeRatTrap(MapLocation loc) {}
+    public boolean canPlaceRatTrap(MapLocation loc) { return false; }
+    public void placeRatTrap(MapLocation loc) {}
+    public boolean canRemoveDirt(MapLocation loc) { return false; }
+    public void removeDirt(MapLocation loc) {}
+    public boolean canPlaceDirt(MapLocation loc) { return false; }
+    public void placeDirt(MapLocation loc) {}
+    public void resign() {}
+    public void disintegrate() {}
+    public boolean canDropRat(Direction dir) { return false; }
+    public void dropRat(Direction dir) {}
+    public boolean canSenseCheeseAmount(MapLocation loc) { return true; }
+    public int senseCheeseAmount(MapLocation loc) { return gameState.getCheeseAt(loc); }
+    public boolean canBecomeRatKing() { return false; }
+    public void becomeRatKing() {}
+    public boolean canBuildRat(MapLocation loc) { return false; }
+    public void buildRat(MapLocation loc) {}
+    public int getCurrentRatCost() { return 10; }
+    public MapLocation adjacentLocation(Direction dir) { return location.add(dir); }
+    public MapInfo[] senseNearbyMapInfos(MapLocation center, int radiusSquared) { return new MapInfo[0]; }
+    public MapInfo[] senseNearbyMapInfos(MapLocation center) { return new MapInfo[0]; }
+    public MapInfo[] senseNearbyMapInfos(int radiusSquared) { return new MapInfo[0]; }
+    public MapInfo[] senseNearbyMapInfos() { return new MapInfo[0]; }
+    public int senseTrapType(MapLocation loc) { return 0; }
+    public boolean sensePassability(MapLocation loc) { return gameState.isPassable(loc); }
+    public int senseDirt(MapLocation loc) { return 0; }
+    public boolean isLocationOccupied(MapLocation loc) { return false; }
+    public boolean isBeingThrown() { return false; }
+    public int getAirTimeTurns() { return 0; }
+    public int getDirt() { return 0; }
+    public int getTotalCheeseTransferred() { return 0; }
+    public int getAllCheese() { return rawCheese + gameState.getGlobalCheese(team); }
+    public MapLocation[] getAllPartLocations() { return new MapLocation[]{location}; }
+    public TrapType senseTrap(MapLocation loc) { return null; }
+    public boolean isCooperation() { return true; }
 }
