@@ -123,20 +123,52 @@ public class BabyRat {
 
         // Look for cheese in vision
         MapLocation[] nearbyLocs = rc.getAllLocationsWithinRadiusSquared(me, 20);
+        MapLocation nearestCheese = null;
+        int nearestDist = Integer.MAX_VALUE;
 
         for (MapLocation loc : nearbyLocs) {
             if (rc.canSenseLocation(loc)) {
                 MapInfo info = rc.senseMapInfo(loc);
                 if (info.getCheeseAmount() > 0) {
-                    moveToward(rc, loc);
-                    return;
+                    int dist = me.distanceSquaredTo(loc);
+                    if (dist < nearestDist) {
+                        nearestDist = dist;
+                        nearestCheese = loc;
+                    }
                 }
             }
         }
 
-        // No cheese visible - move toward map center to explore
-        MapLocation center = new MapLocation(rc.getMapWidth() / 2, rc.getMapHeight() / 2);
-        moveToward(rc, center);
+        if (nearestCheese != null) {
+            // Try to pick up if on cheese
+            if (rc.canPickUpCheese(nearestCheese)) {
+                rc.pickUpCheese(nearestCheese);
+
+                if (DebugConfig.DEBUG_CHEESE) {
+                    Debug.info(rc, "Picked up cheese at " + nearestCheese);
+                }
+
+                Logger.logCheeseCollect(
+                    rc.getRoundNum(),
+                    rc.getID(),
+                    me.x, me.y,
+                    5,
+                    rc.getRawCheese(),
+                    nearestCheese.x, nearestCheese.y
+                );
+            } else {
+                // Move toward nearest cheese
+                moveToward(rc, nearestCheese);
+
+                if (DebugConfig.DEBUG_CHEESE && DebugConfig.VISUAL_INDICATORS) {
+                    Debug.markTarget(rc, nearestCheese, "CHEESE");
+                }
+            }
+        } else {
+            // No cheese visible - move toward map center to explore
+            MapLocation center = new MapLocation(rc.getMapWidth() / 2, rc.getMapHeight() / 2);
+            moveToward(rc, center);
+        }
     }
 
     /**
@@ -195,39 +227,62 @@ public class BabyRat {
      * DELIVER: Return cheese to rat king.
      */
     private static void deliver(RobotController rc) throws GameActionException {
-        // Find nearest rat king
-        RobotInfo nearestKing = RobotUtil.findNearestAllyKing(rc);
+        // Get king location from shared array (broadcast by king)
+        int kingX = rc.readSharedArray(1);
+        int kingY = rc.readSharedArray(2);
 
-        if (nearestKing != null) {
-            MapLocation kingLoc = nearestKing.getLocation();
-
-            // Visual: Show delivery target
-            if (DebugConfig.DEBUG_CHEESE && DebugConfig.VISUAL_INDICATORS) {
-                Debug.markTarget(rc, kingLoc, "DELIVER");
-            }
-
-            // Can we transfer?
-            if (rc.canTransferCheese(kingLoc, rc.getRawCheese())) {
-                int amount = rc.getRawCheese();
-                rc.transferCheese(kingLoc, amount);
-
-                Logger.logCheeseTransfer(
-                    rc.getRoundNum(),
-                    rc.getID(),
-                    amount,
-                    kingLoc.x, kingLoc.y,
-                    rc.getGlobalCheese()
-                );
-
-                // Done delivering, back to exploring
+        // Validate coordinates
+        if (kingX == 0 && kingY == 0) {
+            // King hasn't broadcast position yet - try to find via vision
+            RobotInfo nearestKing = RobotUtil.findNearestAllyKing(rc);
+            if (nearestKing == null) {
+                Debug.warning(rc, "No king position available");
                 currentState = State.EXPLORE;
-            } else {
-                // Move toward king
-                moveToward(rc, kingLoc);
+                return;
             }
-        } else {
-            // No king visible - keep exploring (they might be far away)
+            kingX = nearestKing.getLocation().x;
+            kingY = nearestKing.getLocation().y;
+        }
+
+        MapLocation kingLoc = new MapLocation(kingX, kingY);
+        int distance = rc.getLocation().distanceSquaredTo(kingLoc);
+
+        // Debug delivery attempt
+        if (DebugConfig.DEBUG_CHEESE && rc.getRoundNum() % 10 == 0) {
+            Debug.info(rc, "DELIVER: King at " + kingLoc + " dist²=" + distance + " cheese=" + rc.getRawCheese());
+        }
+
+        // Visual: Show delivery target
+        if (DebugConfig.DEBUG_CHEESE && DebugConfig.VISUAL_INDICATORS) {
+            Debug.markTarget(rc, kingLoc, "DELIVER");
+        }
+
+        // Can we transfer?
+        if (rc.canTransferCheese(kingLoc, rc.getRawCheese())) {
+            int amount = rc.getRawCheese();
+            rc.transferCheese(kingLoc, amount);
+
+            Logger.logCheeseTransfer(
+                rc.getRoundNum(),
+                rc.getID(),
+                amount,
+                kingLoc.x, kingLoc.y,
+                rc.getGlobalCheese()
+            );
+
+            if (DebugConfig.DEBUG_CHEESE) {
+                Debug.info(rc, "Transferred " + amount + " cheese to king");
+            }
+
+            // Done delivering, back to exploring
             currentState = State.EXPLORE;
+        } else {
+            // Move toward king
+            moveToward(rc, kingLoc);
+
+            if (DebugConfig.DEBUG_CHEESE && rc.getRoundNum() % 10 == 0) {
+                Debug.info(rc, "Moving toward king at " + kingLoc + " (dist²=" + distance + ")");
+            }
         }
     }
 

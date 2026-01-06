@@ -56,6 +56,11 @@ public class RatKing {
         // Normal operations - broadcast status
         rc.writeSharedArray(BehaviorConfig.SLOT_CHEESE_STATUS, Math.min(roundsLeft, 1023)); // 10-bit limit
 
+        // Broadcast king position for baby rats to find (use slots 1-2)
+        MapLocation myLoc = rc.getLocation();
+        rc.writeSharedArray(1, myLoc.x);  // King X coordinate
+        rc.writeSharedArray(2, myLoc.y);  // King Y coordinate
+
         // Economy logging every 10 rounds
         if (round % 10 == 0) {
             int income = globalCheese - lastGlobalCheese + 30; // +30 = 10 rounds × 3 consumption
@@ -292,13 +297,25 @@ public class RatKing {
         return score;
     }
 
+    private static boolean hasReachedGoodPosition = false;
+
     /**
      * Reposition king if current location is bad for spawning.
      * Only moves when <4 spawn locations available.
+     * Stops repositioning once a good position is found (to let rats deliver).
      */
     private static void repositionIfNeeded(RobotController rc) throws GameActionException {
+        // Once we find a good position, STAY THERE (let rats deliver)
+        if (hasReachedGoodPosition) {
+            return;
+        }
+
         // Check if current position is adequate
         if (isPositionGoodForSpawning(rc)) {
+            hasReachedGoodPosition = true; // Lock in position
+            if (DebugConfig.DEBUG_SPAWNING) {
+                Debug.info(rc, "Good position found! Staying at " + rc.getLocation());
+            }
             return; // Position is fine, don't move
         }
 
