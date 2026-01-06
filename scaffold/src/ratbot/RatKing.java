@@ -57,23 +57,17 @@ public class RatKing {
             lastGlobalCheese = globalCheese;
         }
 
-        // Try to spawn baby rats (when API available)
-        // TODO: Uncomment when rc.canBuildRobot() and rc.buildRobot() are added to API
-        // trySpawn(rc);
+        // Try to spawn baby rats
+        trySpawn(rc);
     }
 
     /**
      * Attempt to spawn a baby rat if conditions are favorable.
-     *
-     * NOTE: Implementation ready, waiting for API release.
-     * Methods rc.canBuildRobot() and rc.buildRobot() not yet available in engine v1.0.3.
-     * See scaffold/API_STATUS.md for current API status.
      */
-    @SuppressWarnings("unused")
     private static void trySpawn(RobotController rc) throws GameActionException {
         // Safety check: Ensure we have survival buffer
         int globalCheese = rc.getGlobalCheese();
-        int kingCount = RobotUtil.countAllyKings(rc);
+        int kingCount = Math.max(1, RobotUtil.countAllyKings(rc));
         int roundsOfCheese = globalCheese / (kingCount * 3);
 
         // Don't spawn if we're low on cheese
@@ -87,13 +81,11 @@ public class RatKing {
         for (int i = directions.length; --i >= 0;) {
             MapLocation spawnLoc = rc.getLocation().add(directions[i]);
 
-            // TODO: Uncomment when API available
-            /*
-            if (rc.canBuildRobot(spawnLoc)) {
+            if (rc.canBuildRat(spawnLoc)) {
                 int babyRats = RobotUtil.countAllyBabyRats(rc);
                 int spawnCost = Constants.getSpawnCost(babyRats);
 
-                rc.buildRobot(spawnLoc);
+                rc.buildRat(spawnLoc);
 
                 // Log spawn for analysis
                 Logger.logSpawn(
@@ -108,7 +100,6 @@ public class RatKing {
 
                 return;  // Only spawn once per turn
             }
-            */
         }
     }
 
