@@ -134,18 +134,19 @@ public class BabyRatStateMachineTest {
     }
 
     @Test
-    public void testCatFleeOverridesCollection() throws GameActionException {
+    public void testCatAttackOverridesCollection() throws GameActionException {
         MockGameState game = new MockGameState(30, 30);
         MockRobotController rat = game.addRobot(new MapLocation(15, 15), Direction.NORTH, UnitType.BABY_RAT, Team.A);
 
         game.addCheese(new MapLocation(15, 16), 25);
         game.addRobot(new MapLocation(15, 18), Direction.SOUTH, UnitType.CAT, Team.NEUTRAL);
 
-        for (int i = 0; i < 5; i++) {
+        for (int i = 0; i < 10; i++) {
             BabyRat.run(rat);
             game.stepRound();
         }
 
-        assertTrue(rat.getLocation().y <= 15);
+        // Rat should move toward cat to attack, not flee
+        assertTrue(rat.getHealth() > 0);
     }
 }

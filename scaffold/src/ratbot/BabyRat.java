@@ -19,7 +19,7 @@ import ratbot.logging.*;
 public class BabyRat {
 
     // States
-    private static enum State { EXPLORE, COLLECT, DELIVER, FLEE }
+    private static enum State { EXPLORE, COLLECT, DELIVER, ATTACK_CAT }
     private static State currentState = State.EXPLORE;
 
     // Cheese collection targets
@@ -73,8 +73,8 @@ public class BabyRat {
             case DELIVER:
                 deliver(rc);
                 break;
-            case FLEE:
-                flee(rc);
+            case ATTACK_CAT:
+                attackCat(rc);
                 break;
         }
 
@@ -97,9 +97,9 @@ public class BabyRat {
      * Update state machine based on current conditions.
      */
     private static void updateState(RobotController rc) throws GameActionException {
-        // Check for cats first (highest priority)
+        // Check for cats first - ATTACK them (primary objective: 50% of cooperation score)
         if (RobotUtil.detectCat(rc, 20)) {
-            currentState = State.FLEE;
+            currentState = State.ATTACK_CAT;
             return;
         }
 
@@ -287,57 +287,90 @@ public class BabyRat {
     }
 
     /**
-     * FLEE: Avoid cats.
+     * ATTACK_CAT: Primary objective in cooperation mode (50% of score).
+     * Swarm attack cats to deal damage.
      */
-    private static void flee(RobotController rc) throws GameActionException {
-        MapLocation me = rc.getLocation();
-
+    private static void attackCat(RobotController rc) throws GameActionException {
         // Find nearest cat
         RobotInfo nearestCat = RobotUtil.findNearestCat(rc);
 
-        if (nearestCat != null) {
-            MapLocation catLoc = nearestCat.getLocation();
-
-            // Visual: Show cat threat
-            if (DebugConfig.VISUAL_INDICATORS) {
-                Debug.debugCatDetection(rc, catLoc);
-            }
-
-            // Move away from cat (opposite direction)
-            Direction away = me.directionTo(catLoc);
-            Direction flee = DirectionUtil.opposite(away);
-
-            // Turn to face away
-            if (rc.canTurn() && rc.getDirection() != flee) {
-                rc.turn(flee);
-            }
-
-            // Move away
-            if (rc.canMoveForward()) {
-                rc.moveForward();
-            }
-        } else {
-            // Cat not visible anymore, return to collection
+        if (nearestCat == null) {
+            // No cat visible - return to exploration
             currentState = State.EXPLORE;
+            return;
         }
+
+        MapLocation catLoc = nearestCat.getLocation();
+        int distance = rc.getLocation().distanceSquaredTo(catLoc);
+
+        // Visual: Show attack target
+        if (DebugConfig.VISUAL_INDICATORS) {
+            Debug.markTarget(rc, catLoc, "ATTACK_CAT");
+        }
+
+        // Can we attack? (adjacent tiles, dist²≤2)
+        if (distance <= 2 && rc.canAttack(catLoc)) {
+            rc.attack(catLoc);
+
+            Logger.logCombat(
+                rc.getRoundNum(),
+                "BABY_RAT",
+                rc.getID(),
+                rc.getLocation().x, rc.getLocation().y,
+                catLoc.x, catLoc.y,
+                10, // base damage
+                0, // no cheese spent
+                nearestCat.getHealth() - 10
+            );
+
+            if (DebugConfig.DEBUG_COMBAT) {
+                Debug.info(rc, "Attacked cat! HP: " + nearestCat.getHealth() + " -> " + (nearestCat.getHealth() - 10));
+            }
+            return;
+        }
+
+        // Move toward cat to get in attack range
+        moveToward(rc, catLoc);
     }
 
     /**
-     * Simple movement toward target.
-     * Uses turn + move forward pattern.
+     * Movement toward target with obstacle avoidance.
+     * Tries direct path first, then alternatives if blocked.
      */
     private static void moveToward(RobotController rc, MapLocation target) throws GameActionException {
         MapLocation me = rc.getLocation();
         Direction toTarget = me.directionTo(target);
+        Direction currentFacing = rc.getDirection();
 
-        // Turn to face target
-        if (rc.canTurn() && rc.getDirection() != toTarget) {
-            rc.turn(toTarget);
+        // Already facing target - try to move
+        if (currentFacing == toTarget) {
+            if (rc.canMoveForward()) {
+                rc.moveForward();
+                return;
+            }
+            // Blocked - try alternatives
         }
 
-        // Move forward
-        if (rc.canMoveForward()) {
-            rc.moveForward();
+        // Need to turn OR blocked - try best available direction
+        Direction[] alternatives = DirectionUtil.orderedDirections(toTarget);
+
+        for (Direction dir : alternatives) {
+            // If we can move in this direction
+            if (dir == currentFacing && rc.canMoveForward()) {
+                rc.moveForward();
+                return;
+            } else if (rc.canMove(dir)) {
+                // Turn toward this direction
+                if (rc.canTurn()) {
+                    rc.turn(dir);
+                    return;
+                }
+            }
+        }
+
+        // Completely stuck - debug
+        if (rc.getRoundNum() % 50 == 0) {
+            Debug.warning(rc, "STUCK: Can't move any direction from " + me);
         }
     }
 
