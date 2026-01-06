@@ -19,7 +19,7 @@ public class DebugConfig {
     /**
      * Debug level (OFF, ERROR, WARNING, INFO, VERBOSE).
      */
-    public static final Debug.Level LEVEL = Debug.Level.INFO;
+    public static final Debug.Level LEVEL = Debug.Level.VERBOSE;
 
     // ===== Feature Flags =====
 

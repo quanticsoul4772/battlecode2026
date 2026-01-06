@@ -89,7 +89,8 @@ public class RatKing {
             return;  // Survival first
         }
 
-        // Try all 8 adjacent directions (backward loop for bytecode efficiency)
+        // Try spawn locations at distance=2 (outside 3x3 king footprint)
+        // King is 3x3, so adjacent tiles (distance=1) are part of king itself!
         Direction[] directions = DirectionUtil.ALL_DIRECTIONS;
 
         // Debug spawn cost vs available cheese
@@ -105,7 +106,8 @@ public class RatKing {
 
         int attemptCount = 0;
         for (int i = directions.length; --i >= 0;) {
-            MapLocation spawnLoc = rc.getLocation().add(directions[i]);
+            // Spawn at distance=2 to avoid king's 3x3 footprint
+            MapLocation spawnLoc = rc.getLocation().add(directions[i]).add(directions[i]);
             attemptCount++;
 
             boolean canSpawn = rc.canBuildRat(spawnLoc);
@@ -156,15 +158,41 @@ public class RatKing {
         Direction[] directions = DirectionUtil.ALL_DIRECTIONS;
         int openCount = 0;
 
+        // Detailed debugging every 20 rounds
+        boolean detailedDebug = DebugConfig.DEBUG_SPAWNING && rc.getRoundNum() % 20 == 0;
+
         for (int i = directions.length; --i >= 0;) {
-            MapLocation spawnLoc = rc.getLocation().add(directions[i]);
-            if (rc.canBuildRat(spawnLoc)) {
+            // Spawn at distance=2 to avoid king's 3x3 footprint
+            MapLocation spawnLoc = rc.getLocation().add(directions[i]).add(directions[i]);
+            boolean canSpawn = rc.canBuildRat(spawnLoc);
+
+            if (canSpawn) {
                 openCount++;
+            }
+
+            // Debug WHY each location fails
+            if (detailedDebug && !canSpawn) {
+                boolean onMap = rc.onTheMap(spawnLoc);
+                boolean passable = onMap ? rc.sensePassability(spawnLoc) : false;
+                boolean occupied = onMap ? rc.isLocationOccupied(spawnLoc) : false;
+                int cheese = -1;
+                if (onMap && rc.canSenseLocation(spawnLoc)) {
+                    MapInfo info = rc.senseMapInfo(spawnLoc);
+                    cheese = info.getCheeseAmount();
+                }
+
+                // Force print for debugging (bypass Debug.verbose)
+                System.out.println("DEBUG:" + rc.getRoundNum() + ":" + rc.getID() + ":BLOCKED:" +
+                    directions[i] + "@" + spawnLoc +
+                    ":onMap=" + onMap +
+                    ":pass=" + passable +
+                    ":occ=" + occupied +
+                    ":cheese=" + cheese);
             }
         }
 
-        // Debug detailed spawn check
-        if (DebugConfig.DEBUG_SPAWNING && rc.getRoundNum() % 20 == 0) {
+        // Summary
+        if (detailedDebug) {
             Debug.info(rc, "Spawn capacity: " + openCount + "/8 at " + rc.getLocation());
         }
 
@@ -205,6 +233,12 @@ public class RatKing {
             if (score > bestScore) {
                 bestScore = score;
                 bestDir = dir;
+
+                // Visual debug - show best candidate
+                if (DebugConfig.DEBUG_SPAWNING) {
+                    Debug.dot(rc, candidate, Debug.Color.GREEN);
+                    Debug.verbose(rc, "Better position: " + candidate + " score=" + score + " (current=" + currentScore + ")");
+                }
             }
         }
 
@@ -218,26 +252,41 @@ public class RatKing {
     private static int scoreKingPosition(RobotController rc, MapLocation pos) throws GameActionException {
         int score = 0;
 
-        // Factor 1: Open spawn locations (MOST IMPORTANT)
+        // Factor 1: ACTUAL spawn capacity (MOST IMPORTANT)
+        // Use canBuildRat() to check if can truly spawn (includes cheese check)
+        // Check at distance=2 because king is 3x3 (distance=1 is king's own footprint)
         for (int i = DirectionUtil.ALL_DIRECTIONS.length; --i >= 0;) {
-            MapLocation adjacent = pos.add(DirectionUtil.ALL_DIRECTIONS[i]);
+            Direction dir = DirectionUtil.ALL_DIRECTIONS[i];
+            MapLocation spawnLoc = pos.add(dir).add(dir);  // Distance=2
 
-            // Check if on map (passability check too expensive)
-            if (rc.onTheMap(adjacent)) {
-                score += 10; // Potentially spawnable
+            // Check if can ACTUALLY spawn here (not just on map)
+            if (rc.canBuildRat(spawnLoc)) {
+                score += 20; // Doubled weight - spawnable tiles are critical
             }
         }
 
-        // Factor 2: Distance from map edges (prefer interior)
+        // Factor 2: Distance from edges (reduced weight)
+        // Center often has cheese clusters - reduce priority
         int edgeDist = Math.min(
             Math.min(pos.x, rc.getMapWidth() - pos.x),
             Math.min(pos.y, rc.getMapHeight() - pos.y)
         );
-        score += edgeDist;
+        score += edgeDist / 2;  // Half weight - don't over-prioritize center
 
         // Factor 3: Safe spacing from other kings
         if (KingManagement.isSafeKingLocation(rc, pos)) {
             score += 50; // Significant bonus for safe positioning
+        }
+
+        // Factor 4: Avoid nearby cats
+        if (RobotUtil.detectCat(rc, 100)) {  // Within 10 tiles
+            RobotInfo nearestCat = RobotUtil.findNearestCat(rc);
+            if (nearestCat != null) {
+                int dist = pos.distanceSquaredTo(nearestCat.getLocation());
+                if (dist < 100) {  // Within 10 tiles
+                    score -= 30;  // Penalty for cat proximity
+                }
+            }
         }
 
         return score;
