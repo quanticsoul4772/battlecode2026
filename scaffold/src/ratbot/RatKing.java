@@ -15,8 +15,11 @@ import ratbot.logging.*;
 public class RatKing {
 
     private static int lastGlobalCheese = 2500;
+    private static int lastSpawnRound = 0;  // Track when we last spawned
 
-    // Use BehaviorConfig for all constants
+    // Spawn rate limiting
+    private static final int MIN_SPAWN_INTERVAL = 5;  // Minimum rounds between spawns
+    private static final int SPAWN_ECONOMIC_BUFFER = 300;  // Buffer cheese per king
 
     public static void run(RobotController rc) throws GameActionException {
         int round = rc.getRoundNum();
@@ -77,19 +80,34 @@ public class RatKing {
 
     /**
      * Attempt to spawn a baby rat if conditions are favorable.
+     * Includes economic spawn limiting to prevent cheese drain.
      */
     private static void trySpawn(RobotController rc) throws GameActionException {
-        // Safety check: Ensure we have survival buffer
         int globalCheese = rc.getGlobalCheese();
         int kingCount = Math.max(1, RobotUtil.countAllyKings(rc));
-        int roundsOfCheese = globalCheese / (kingCount * 3);
+        int currentRound = rc.getRoundNum();
 
-        // Debug
-        if (rc.getRoundNum() % 50 == 0) {
-            System.out.println("SPAWN_CHECK:" + rc.getRoundNum() + ":rounds=" + roundsOfCheese + ":threshold=" + BehaviorConfig.WARNING_CHEESE_ROUNDS);
+        // GATE 1: Minimum spawn interval (anti-spam)
+        if (currentRound - lastSpawnRound < MIN_SPAWN_INTERVAL) {
+            if (DebugConfig.DEBUG_SPAWNING && currentRound % 50 == 0) {
+                Debug.verbose(rc, "Spawn throttled: " + (currentRound - lastSpawnRound) + "/" + MIN_SPAWN_INTERVAL + " rounds since last");
+            }
+            return;
         }
 
-        // Don't spawn if we're low on cheese
+        // GATE 2: Economic buffer (sustainability)
+        int currentCost = rc.getCurrentRatCost();
+        int economicBuffer = kingCount * SPAWN_ECONOMIC_BUFFER;
+
+        if (globalCheese < currentCost + economicBuffer) {
+            if (DebugConfig.DEBUG_SPAWNING && currentRound % 50 == 0) {
+                Debug.verbose(rc, "Spawn blocked: cheese=" + globalCheese + " < cost=" + currentCost + " + buffer=" + economicBuffer);
+            }
+            return;
+        }
+
+        // GATE 3: Survival check (existing logic)
+        int roundsOfCheese = globalCheese / (kingCount * 3);
         if (roundsOfCheese < BehaviorConfig.WARNING_CHEESE_ROUNDS) {
             return;  // Survival first
         }
@@ -98,15 +116,12 @@ public class RatKing {
         // King is 3x3, so adjacent tiles (distance=1) are part of king itself!
         Direction[] directions = DirectionUtil.ALL_DIRECTIONS;
 
-        // Debug spawn cost vs available cheese
-        if (DebugConfig.DEBUG_SPAWNING && rc.getRoundNum() % 50 == 0) {
+        // Debug spawn economics
+        if (DebugConfig.DEBUG_SPAWNING && currentRound % 50 == 0) {
             int babyRats = RobotUtil.countAllyBabyRats(rc);
-            int spawnCost = Constants.getSpawnCost(babyRats);
-            int currentCost = rc.getCurrentRatCost();
             boolean actionReady = rc.isActionReady();
-            int actionCooldown = rc.getActionCooldownTurns();
 
-            Debug.info(rc, "Spawn economics: cost=" + spawnCost + " apiCost=" + currentCost + " cheese=" + globalCheese + " rats=" + babyRats + " actionReady=" + actionReady + " cd=" + actionCooldown);
+            Debug.info(rc, "Spawn economics: cost=" + currentCost + " cheese=" + globalCheese + " buffer=" + economicBuffer + " rats=" + babyRats + " actionReady=" + actionReady);
         }
 
         int attemptCount = 0;
@@ -143,6 +158,9 @@ public class RatKing {
                 if (DebugConfig.DEBUG_SPAWNING) {
                     Debug.timeline(rc, "SPAWN:" + (babyRats + 1), Debug.Color.GREEN);
                 }
+
+                // Update last spawn round for rate limiting
+                lastSpawnRound = rc.getRoundNum();
 
                 return;  // Only spawn once per turn
             }
