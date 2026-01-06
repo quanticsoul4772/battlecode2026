@@ -43,6 +43,7 @@ public class BabyRat {
         MapLocation me = rc.getLocation();
 
         // Check for emergency mode FIRST (highest priority)
+        State oldState = currentState;
         checkEmergencyMode(rc);
 
         // Check backstab decision periodically (low bytecode cost)
@@ -50,6 +51,16 @@ public class BabyRat {
 
         // Update state
         updateState(rc);
+
+        // Debug state transitions
+        if (DebugConfig.STATE_LOGGING && oldState != currentState) {
+            Debug.debugStateChange(rc, oldState.toString(), currentState.toString(), "updateState");
+        }
+
+        // Visual: Show current state
+        if (DebugConfig.VISUAL_INDICATORS && round % DebugConfig.INDICATOR_INTERVAL == 0) {
+            Debug.status(rc, currentState + " cheese=" + rc.getRawCheese());
+        }
 
         // Execute behavior based on state
         switch (currentState) {
@@ -189,6 +200,12 @@ public class BabyRat {
 
         if (nearestKing != null) {
             MapLocation kingLoc = nearestKing.getLocation();
+
+            // Visual: Show delivery target
+            if (DebugConfig.DEBUG_CHEESE && DebugConfig.VISUAL_INDICATORS) {
+                Debug.markTarget(rc, kingLoc, "DELIVER");
+            }
+
             // Can we transfer?
             if (rc.canTransferCheese(kingLoc, rc.getRawCheese())) {
                 int amount = rc.getRawCheese();
@@ -225,6 +242,12 @@ public class BabyRat {
 
         if (nearestCat != null) {
             MapLocation catLoc = nearestCat.getLocation();
+
+            // Visual: Show cat threat
+            if (DebugConfig.VISUAL_INDICATORS) {
+                Debug.debugCatDetection(rc, catLoc);
+            }
+
             // Move away from cat (opposite direction)
             Direction away = me.directionTo(catLoc);
             Direction flee = DirectionUtil.opposite(away);
@@ -275,6 +298,11 @@ public class BabyRat {
             if (!isEmergencyMode) {
                 isEmergencyMode = true;
                 System.out.println("EMERGENCY:" + rc.getRoundNum() + ":RAT_EMERGENCY_MODE:id=" + rc.getID());
+
+                // Visual emergency
+                if (DebugConfig.DEBUG_EMERGENCY) {
+                    Debug.debugEmergency(rc, "RAT_RESPONSE", cheeseStatus);
+                }
             }
 
             // Override state machine - force cheese operations

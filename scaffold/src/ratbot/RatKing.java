@@ -32,6 +32,12 @@ public class RatKing {
             // Broadcast CRITICAL emergency to all units
             rc.writeSharedArray(BehaviorConfig.SLOT_CHEESE_STATUS, BehaviorConfig.EMERGENCY_CRITICAL);
             System.out.println("EMERGENCY:" + round + ":CRITICAL_STARVATION:rounds=" + roundsLeft + ":cheese=" + globalCheese);
+
+            // Visual emergency indicator
+            if (DebugConfig.DEBUG_EMERGENCY) {
+                Debug.debugEmergency(rc, "CRITICAL_STARVATION", roundsLeft);
+            }
+
             // STOP ALL SPAWNING - survival mode
             return;
         }
@@ -70,6 +76,11 @@ public class RatKing {
         int kingCount = Math.max(1, RobotUtil.countAllyKings(rc));
         int roundsOfCheese = globalCheese / (kingCount * 3);
 
+        // Debug
+        if (rc.getRoundNum() % 50 == 0) {
+            System.out.println("SPAWN_CHECK:" + rc.getRoundNum() + ":rounds=" + roundsOfCheese + ":threshold=" + BehaviorConfig.WARNING_CHEESE_ROUNDS);
+        }
+
         // Don't spawn if we're low on cheese
         if (roundsOfCheese < BehaviorConfig.WARNING_CHEESE_ROUNDS) {
             return;  // Survival first
@@ -78,10 +89,19 @@ public class RatKing {
         // Try all 8 adjacent directions (backward loop for bytecode efficiency)
         Direction[] directions = DirectionUtil.ALL_DIRECTIONS;
 
+        int attemptCount = 0;
         for (int i = directions.length; --i >= 0;) {
             MapLocation spawnLoc = rc.getLocation().add(directions[i]);
+            attemptCount++;
 
-            if (rc.canBuildRat(spawnLoc)) {
+            boolean canSpawn = rc.canBuildRat(spawnLoc);
+
+            // Visual debug each spawn attempt
+            if (DebugConfig.DEBUG_SPAWNING) {
+                Debug.debugSpawnAttempt(rc, spawnLoc, canSpawn);
+            }
+
+            if (canSpawn) {
                 int babyRats = RobotUtil.countAllyBabyRats(rc);
                 int spawnCost = Constants.getSpawnCost(babyRats);
 
@@ -98,8 +118,19 @@ public class RatKing {
                     babyRats + 1  // After spawning
                 );
 
+                // Visual success indicator
+                if (DebugConfig.DEBUG_SPAWNING) {
+                    Debug.timeline(rc, "SPAWN:" + (babyRats + 1), Debug.Color.GREEN);
+                }
+
                 return;  // Only spawn once per turn
             }
+        }
+
+        // Debug: No valid spawn location found
+        if (DebugConfig.DEBUG_SPAWNING && rc.getRoundNum() % 10 == 0) {
+            Debug.warning(rc, "Spawn blocked - checked " + attemptCount + " locations");
+            Debug.status(rc, "SPAWN_BLOCKED x" + attemptCount);
         }
     }
 
