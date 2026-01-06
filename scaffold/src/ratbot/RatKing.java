@@ -16,11 +16,7 @@ public class RatKing {
 
     private static int lastGlobalCheese = 2500;
 
-    // Emergency thresholds (Nygard: Circuit breaker pattern)
-    private static final int EMERGENCY_THRESHOLD = 100; // rounds of cheese
-    private static final int CRITICAL_THRESHOLD = 33;   // rounds of cheese
-    private static final int EMERGENCY_CODE = 999;      // Shared array emergency signal
-    private static final int CHEESE_STATUS_SLOT = 0;    // Shared array slot for cheese status
+    // Use BehaviorConfig for all constants
 
     public static void run(RobotController rc) throws GameActionException {
         int round = rc.getRoundNum();
@@ -28,31 +24,31 @@ public class RatKing {
         int globalCheese = rc.getGlobalCheese();
 
         // Calculate survival metrics
-        int kingCount = Math.max(1, countAllyKings(rc));
+        int kingCount = Math.max(1, RobotUtil.countAllyKings(rc));
         int roundsLeft = globalCheese / (kingCount * 3);
 
         // CRITICAL: Emergency circuit breaker
-        if (roundsLeft < CRITICAL_THRESHOLD) {
+        if (roundsLeft < BehaviorConfig.CRITICAL_CHEESE_ROUNDS) {
             // Broadcast CRITICAL emergency to all units
-            rc.writeSharedArray(CHEESE_STATUS_SLOT, EMERGENCY_CODE);
+            rc.writeSharedArray(BehaviorConfig.SLOT_CHEESE_STATUS, BehaviorConfig.EMERGENCY_CRITICAL);
             System.out.println("EMERGENCY:" + round + ":CRITICAL_STARVATION:rounds=" + roundsLeft + ":cheese=" + globalCheese);
             // STOP ALL SPAWNING - survival mode
             return;
         }
 
         // WARNING: Low cheese - reduce spawning
-        if (roundsLeft < EMERGENCY_THRESHOLD) {
-            rc.writeSharedArray(CHEESE_STATUS_SLOT, roundsLeft);
+        if (roundsLeft < BehaviorConfig.WARNING_CHEESE_ROUNDS) {
+            rc.writeSharedArray(BehaviorConfig.SLOT_CHEESE_STATUS, roundsLeft);
             System.out.println("WARNING:" + round + ":LOW_CHEESE:rounds=" + roundsLeft + ":cheese=" + globalCheese);
             // Only spawn if significant surplus
-            if (globalCheese > 500) {
+            if (globalCheese > BehaviorConfig.MIN_CHEESE_FOR_SPAWNING) {
                 trySpawn(rc);
             }
             return;
         }
 
         // Normal operations - broadcast status
-        rc.writeSharedArray(CHEESE_STATUS_SLOT, Math.min(roundsLeft, 1023)); // 10-bit limit
+        rc.writeSharedArray(BehaviorConfig.SLOT_CHEESE_STATUS, Math.min(roundsLeft, 1023)); // 10-bit limit
 
         // Economy logging every 10 rounds
         if (round % 10 == 0) {
@@ -77,11 +73,11 @@ public class RatKing {
     private static void trySpawn(RobotController rc) throws GameActionException {
         // Safety check: Ensure we have survival buffer
         int globalCheese = rc.getGlobalCheese();
-        int kingCount = countAllyKings(rc);
+        int kingCount = RobotUtil.countAllyKings(rc);
         int roundsOfCheese = globalCheese / (kingCount * 3);
 
-        // Don't spawn if we're low on cheese (< 100 rounds of food)
-        if (roundsOfCheese < 100) {
+        // Don't spawn if we're low on cheese
+        if (roundsOfCheese < BehaviorConfig.WARNING_CHEESE_ROUNDS) {
             return;  // Survival first
         }
 
@@ -94,7 +90,7 @@ public class RatKing {
             // TODO: Uncomment when API available
             /*
             if (rc.canBuildRobot(spawnLoc)) {
-                int babyRats = countBabyRats(rc);
+                int babyRats = RobotUtil.countAllyBabyRats(rc);
                 int spawnCost = Constants.getSpawnCost(babyRats);
 
                 rc.buildRobot(spawnLoc);
@@ -116,35 +112,4 @@ public class RatKing {
         }
     }
 
-    /**
-     * Count ally baby rats (for spawn cost calculation).
-     */
-    private static int countBabyRats(RobotController rc) throws GameActionException {
-        RobotInfo[] allies = rc.senseNearbyRobots(-1, rc.getTeam());
-        int count = 0;
-
-        for (int i = allies.length; --i >= 0;) {
-            if (allies[i].getType() == UnitType.BABY_RAT) {
-                count++;
-            }
-        }
-
-        return count;
-    }
-
-    /**
-     * Count ally kings for consumption calculation.
-     */
-    private static int countAllyKings(RobotController rc) throws GameActionException {
-        RobotInfo[] allies = rc.senseNearbyRobots(-1, rc.getTeam());
-        int count = 0;
-
-        for (int i = allies.length; --i >= 0;) {
-            if (allies[i].getType() == UnitType.RAT_KING) {
-                count++;
-            }
-        }
-
-        return count;
-    }
 }

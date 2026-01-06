@@ -25,15 +25,13 @@ public class BabyRat {
     // Cheese collection targets
     private static MapLocation targetMine = null;
     private static MapLocation targetKing = null;
-    private static int cheeseThreshold = 20; // Return to king when carrying this much
+    private static int cheeseThreshold = BehaviorConfig.CHEESE_DELIVERY_THRESHOLD;
 
     // Strategic decision tracking
     private static boolean isBackstabbing = false;
     private static int lastBackstabCheck = 0;
 
-    // Emergency mode (Nygard: Circuit breaker pattern)
-    private static final int EMERGENCY_CODE = 999;
-    private static final int CHEESE_STATUS_SLOT = 0;
+    // Emergency mode tracking
     private static boolean isEmergencyMode = false;
 
     /**
@@ -89,15 +87,9 @@ public class BabyRat {
      */
     private static void updateState(RobotController rc) throws GameActionException {
         // Check for cats first (highest priority)
-        RobotInfo[] nearby = rc.senseNearbyRobots(20, Team.NEUTRAL);
-        if (nearby.length > 0) {
-            // Cat detected
-            for (RobotInfo robot : nearby) {
-                if (robot.getType() == UnitType.CAT) {
-                    currentState = State.FLEE;
-                    return;
-                }
-            }
+        if (RobotUtil.detectCat(rc, 20)) {
+            currentState = State.FLEE;
+            return;
         }
 
         // Cheese collection logic
@@ -192,34 +184,21 @@ public class BabyRat {
      * DELIVER: Return cheese to rat king.
      */
     private static void deliver(RobotController rc) throws GameActionException {
-        MapLocation me = rc.getLocation();
-
         // Find nearest rat king
-        RobotInfo[] allies = rc.senseNearbyRobots(-1, rc.getTeam());
-        MapLocation nearestKing = null;
-        int nearestDist = Integer.MAX_VALUE;
-
-        for (RobotInfo ally : allies) {
-            if (ally.getType() == UnitType.RAT_KING) {
-                int dist = me.distanceSquaredTo(ally.getLocation());
-                if (dist < nearestDist) {
-                    nearestDist = dist;
-                    nearestKing = ally.getLocation();
-                }
-            }
-        }
+        RobotInfo nearestKing = RobotUtil.findNearestAllyKing(rc);
 
         if (nearestKing != null) {
+            MapLocation kingLoc = nearestKing.getLocation();
             // Can we transfer?
-            if (rc.canTransferCheese(nearestKing, rc.getRawCheese())) {
+            if (rc.canTransferCheese(kingLoc, rc.getRawCheese())) {
                 int amount = rc.getRawCheese();
-                rc.transferCheese(nearestKing, amount);
+                rc.transferCheese(kingLoc, amount);
 
                 Logger.logCheeseTransfer(
                     rc.getRoundNum(),
                     rc.getID(),
                     amount,
-                    nearestKing.x, nearestKing.y,
+                    kingLoc.x, kingLoc.y,
                     rc.getGlobalCheese()
                 );
 
@@ -227,7 +206,7 @@ public class BabyRat {
                 currentState = State.EXPLORE;
             } else {
                 // Move toward king
-                moveToward(rc, nearestKing);
+                moveToward(rc, kingLoc);
             }
         } else {
             // No king visible - keep exploring (they might be far away)
@@ -242,23 +221,12 @@ public class BabyRat {
         MapLocation me = rc.getLocation();
 
         // Find nearest cat
-        RobotInfo[] cats = rc.senseNearbyRobots(-1, Team.NEUTRAL);
-        MapLocation nearestCat = null;
-        int nearestDist = Integer.MAX_VALUE;
-
-        for (RobotInfo cat : cats) {
-            if (cat.getType() == UnitType.CAT) {
-                int dist = me.distanceSquaredTo(cat.getLocation());
-                if (dist < nearestDist) {
-                    nearestDist = dist;
-                    nearestCat = cat.getLocation();
-                }
-            }
-        }
+        RobotInfo nearestCat = RobotUtil.findNearestCat(rc);
 
         if (nearestCat != null) {
+            MapLocation catLoc = nearestCat.getLocation();
             // Move away from cat (opposite direction)
-            Direction away = me.directionTo(nearestCat);
+            Direction away = me.directionTo(catLoc);
             Direction flee = DirectionUtil.opposite(away);
 
             // Turn to face away
@@ -300,9 +268,9 @@ public class BabyRat {
      * Emergency mode triggered by kings when cheese critically low.
      */
     private static void checkEmergencyMode(RobotController rc) throws GameActionException {
-        int cheeseStatus = rc.readSharedArray(CHEESE_STATUS_SLOT);
+        int cheeseStatus = rc.readSharedArray(BehaviorConfig.SLOT_CHEESE_STATUS);
 
-        if (cheeseStatus == EMERGENCY_CODE) {
+        if (cheeseStatus == BehaviorConfig.EMERGENCY_CRITICAL) {
             // CRITICAL EMERGENCY: All rats must prioritize cheese delivery
             if (!isEmergencyMode) {
                 isEmergencyMode = true;
@@ -317,18 +285,18 @@ public class BabyRat {
             }
 
             // Lower delivery threshold for more frequent deliveries
-            cheeseThreshold = 5;
+            cheeseThreshold = BehaviorConfig.EMERGENCY_DELIVERY_THRESHOLD;
         } else if (cheeseStatus > 0 && cheeseStatus < 200) {
             // WARNING: Low cheese - increase delivery frequency
             if (!isEmergencyMode) {
                 System.out.println("WARNING:" + rc.getRoundNum() + ":LOW_CHEESE_MODE:rounds=" + cheeseStatus);
             }
             isEmergencyMode = false;
-            cheeseThreshold = 10; // Deliver more frequently
+            cheeseThreshold = BehaviorConfig.WARNING_DELIVERY_THRESHOLD;
         } else {
             // Normal operations
             isEmergencyMode = false;
-            cheeseThreshold = 20; // Normal threshold
+            cheeseThreshold = BehaviorConfig.CHEESE_DELIVERY_THRESHOLD;
         }
     }
 
@@ -339,12 +307,12 @@ public class BabyRat {
     private static void checkBackstabDecision(RobotController rc) throws GameActionException {
         int round = rc.getRoundNum();
 
-        // Only check every 50 rounds to save bytecode
-        if (round - lastBackstabCheck < 50) return;
+        // Only check every N rounds to save bytecode
+        if (round - lastBackstabCheck < BehaviorConfig.BACKSTAB_CHECK_INTERVAL) return;
         lastBackstabCheck = round;
 
         // Too early in game
-        if (round < 200) return;
+        if (round < BehaviorConfig.BACKSTAB_EARLIEST_ROUND) return;
 
         // TODO: Implement when shared array communication protocol is defined
         // For now, placeholder implementation with estimated values
@@ -352,8 +320,8 @@ public class BabyRat {
         // Read game state from shared array
         int ourCatDamage = rc.readSharedArray(29);
         int enemyCatDamage = rc.readSharedArray(30);
-        int ourKings = countAllyKings(rc);
-        int enemyKings = countEnemyKings(rc);
+        int ourKings = RobotUtil.countAllyKings(rc);
+        int enemyKings = RobotUtil.countEnemyKings(rc);
         int ourCheese = rc.readSharedArray(31);
         int enemyCheese = rc.readSharedArray(32);
 
@@ -373,35 +341,4 @@ public class BabyRat {
         */
     }
 
-    /**
-     * Count ally kings (for strategic decisions).
-     */
-    private static int countAllyKings(RobotController rc) throws GameActionException {
-        RobotInfo[] allies = rc.senseNearbyRobots(-1, rc.getTeam());
-        int count = 0;
-
-        for (int i = allies.length; --i >= 0;) {
-            if (allies[i].getType() == UnitType.RAT_KING) {
-                count++;
-            }
-        }
-
-        return count;
-    }
-
-    /**
-     * Count enemy kings (for strategic decisions).
-     */
-    private static int countEnemyKings(RobotController rc) throws GameActionException {
-        RobotInfo[] enemies = rc.senseNearbyRobots(-1, rc.getTeam().opponent());
-        int count = 0;
-
-        for (int i = enemies.length; --i >= 0;) {
-            if (enemies[i].getType() == UnitType.RAT_KING) {
-                count++;
-            }
-        }
-
-        return count;
-    }
 }
