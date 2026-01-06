@@ -63,6 +63,9 @@ public class RatKing {
             lastGlobalCheese = globalCheese;
         }
 
+        // Reposition if stuck in bad spawn location (BEFORE trying to spawn)
+        repositionIfNeeded(rc);
+
         // Try to spawn baby rats
         trySpawn(rc);
     }
@@ -88,6 +91,17 @@ public class RatKing {
 
         // Try all 8 adjacent directions (backward loop for bytecode efficiency)
         Direction[] directions = DirectionUtil.ALL_DIRECTIONS;
+
+        // Debug spawn cost vs available cheese
+        if (DebugConfig.DEBUG_SPAWNING && rc.getRoundNum() % 50 == 0) {
+            int babyRats = RobotUtil.countAllyBabyRats(rc);
+            int spawnCost = Constants.getSpawnCost(babyRats);
+            int currentCost = rc.getCurrentRatCost();
+            boolean actionReady = rc.isActionReady();
+            int actionCooldown = rc.getActionCooldownTurns();
+
+            Debug.info(rc, "Spawn economics: cost=" + spawnCost + " apiCost=" + currentCost + " cheese=" + globalCheese + " rats=" + babyRats + " actionReady=" + actionReady + " cd=" + actionCooldown);
+        }
 
         int attemptCount = 0;
         for (int i = directions.length; --i >= 0;) {
@@ -131,6 +145,155 @@ public class RatKing {
         if (DebugConfig.DEBUG_SPAWNING && rc.getRoundNum() % 10 == 0) {
             Debug.warning(rc, "Spawn blocked - checked " + attemptCount + " locations");
             Debug.status(rc, "SPAWN_BLOCKED x" + attemptCount);
+        }
+    }
+
+    /**
+     * Count open spawn locations around king.
+     * @return Number of adjacent tiles where baby rats can spawn (0-8)
+     */
+    private static int countOpenSpawnLocations(RobotController rc) throws GameActionException {
+        Direction[] directions = DirectionUtil.ALL_DIRECTIONS;
+        int openCount = 0;
+
+        for (int i = directions.length; --i >= 0;) {
+            MapLocation spawnLoc = rc.getLocation().add(directions[i]);
+            if (rc.canBuildRat(spawnLoc)) {
+                openCount++;
+            }
+        }
+
+        // Debug detailed spawn check
+        if (DebugConfig.DEBUG_SPAWNING && rc.getRoundNum() % 20 == 0) {
+            Debug.info(rc, "Spawn capacity: " + openCount + "/8 at " + rc.getLocation());
+        }
+
+        return openCount;
+    }
+
+    /**
+     * Check if current position is good for spawning.
+     * @return true if at least 4 spawn locations are open (50% capacity)
+     */
+    private static boolean isPositionGoodForSpawning(RobotController rc) throws GameActionException {
+        int openLocations = countOpenSpawnLocations(rc);
+        return openLocations >= 4; // Need at least 50% spawn capacity
+    }
+
+    /**
+     * Find better position for king to move to.
+     * Evaluates all 8 adjacent directions and picks best one.
+     * @return Direction to move, or null if no better position found
+     */
+    private static Direction findBetterPosition(RobotController rc) throws GameActionException {
+        MapLocation current = rc.getLocation();
+        int currentScore = scoreKingPosition(rc, current);
+
+        Direction bestDir = null;
+        int bestScore = currentScore;
+
+        for (int i = DirectionUtil.ALL_DIRECTIONS.length; --i >= 0;) {
+            Direction dir = DirectionUtil.ALL_DIRECTIONS[i];
+            MapLocation candidate = current.add(dir);
+
+            // Can king move there?
+            if (!rc.canMove(dir)) continue;
+
+            // Would it be better?
+            int score = scoreKingPosition(rc, candidate);
+
+            if (score > bestScore) {
+                bestScore = score;
+                bestDir = dir;
+            }
+        }
+
+        return bestDir; // null if no improvement found
+    }
+
+    /**
+     * Score a king position based on spawn capacity and strategic factors.
+     * Higher score = better position.
+     */
+    private static int scoreKingPosition(RobotController rc, MapLocation pos) throws GameActionException {
+        int score = 0;
+
+        // Factor 1: Open spawn locations (MOST IMPORTANT)
+        for (int i = DirectionUtil.ALL_DIRECTIONS.length; --i >= 0;) {
+            MapLocation adjacent = pos.add(DirectionUtil.ALL_DIRECTIONS[i]);
+
+            // Check if on map (passability check too expensive)
+            if (rc.onTheMap(adjacent)) {
+                score += 10; // Potentially spawnable
+            }
+        }
+
+        // Factor 2: Distance from map edges (prefer interior)
+        int edgeDist = Math.min(
+            Math.min(pos.x, rc.getMapWidth() - pos.x),
+            Math.min(pos.y, rc.getMapHeight() - pos.y)
+        );
+        score += edgeDist;
+
+        // Factor 3: Safe spacing from other kings
+        if (KingManagement.isSafeKingLocation(rc, pos)) {
+            score += 50; // Significant bonus for safe positioning
+        }
+
+        return score;
+    }
+
+    /**
+     * Reposition king if current location is bad for spawning.
+     * Only moves when <4 spawn locations available.
+     */
+    private static void repositionIfNeeded(RobotController rc) throws GameActionException {
+        // Check if current position is adequate
+        if (isPositionGoodForSpawning(rc)) {
+            return; // Position is fine, don't move
+        }
+
+        // Position is bad - find better location
+        Direction moveDir = findBetterPosition(rc);
+
+        if (moveDir == null) {
+            // No better position found
+            if (DebugConfig.DEBUG_SPAWNING) {
+                Debug.warning(rc, "Stuck - no better position available");
+                Debug.status(rc, "STUCK");
+            }
+            return;
+        }
+
+        // Execute movement (turn + move pattern)
+        Direction currentFacing = rc.getDirection();
+
+        // Turn toward target
+        if (rc.canTurn() && currentFacing != moveDir) {
+            rc.turn(moveDir);
+
+            if (DebugConfig.DEBUG_SPAWNING) {
+                Debug.info(rc, "Repositioning: turning to " + moveDir);
+            }
+            return; // Turn this round, move next round
+        }
+
+        // Move forward (40 cd for kings)
+        if (rc.canMoveForward()) {
+            MapLocation oldPos = rc.getLocation();
+            rc.moveForward();
+            MapLocation newPos = rc.getLocation();
+
+            if (DebugConfig.DEBUG_SPAWNING) {
+                Debug.info(rc, "Repositioned: " + oldPos + " -> " + newPos);
+                Debug.timeline(rc, "KING_MOVE", Debug.Color.BLUE);
+                Debug.line(rc, oldPos, newPos, Debug.Color.BLUE);
+            }
+        } else {
+            // Can't move forward - debug why
+            if (DebugConfig.DEBUG_SPAWNING && rc.getRoundNum() % 10 == 0) {
+                Debug.verbose(rc, "Can't move: cooldown or blocked");
+            }
         }
     }
 
