@@ -149,6 +149,11 @@ public class RobotPlayer {
         MapLocation me = rc.getLocation();
         int id = rc.getID();
 
+        // Scan map for pathfinding (once per rat)
+        if (!mapScanned) {
+            scanMap(rc);
+        }
+
         // SIMPLE: Role based on ID (50/50 split)
         if (myRole == -1) {
             myRole = (id % 2 == 0) ? 0 : 1;  // Even ID=attack, odd ID=collect
@@ -210,36 +215,45 @@ public class RobotPlayer {
                     System.out.println("ATTACK_BLOCKED:" + round + ":" + id + ":dist=" + dist + " actionReady=" + actionReady + " facingKing=" + facingKing);
                 }
 
-                // Chase - CRITICAL: When close (dist<=10), be aggressive
+                // Chase - When close (dist<=10), try direct approach (BFS too expensive)
                 if (dist <= 10) {
-                    System.out.println("ASSAULT:" + round + ":" + id + ":dist=" + dist + " closing in");
+                    System.out.println("ASSAULT:" + round + ":" + id + ":dist=" + dist + " closing");
 
-                    // Try direct move to king
+                    // Try direct move
                     if (rc.canMove(toKing)) {
                         rc.move(toKing);
-                        System.out.println("ASSAULT_ADVANCE:" + round + ":" + id + ":moved " + toKing);
+                        System.out.println("DIRECT:" + round + ":" + id + ":moved " + toKing);
                         return;
                     }
 
-                    // Can't move directly - try adjacent directions
-                    Direction[] adjacent = {
-                        rotateLeft(toKing),
-                        rotateRight(toKing),
-                        toKing,
-                        rotateLeft(rotateLeft(toKing)),
-                        rotateRight(rotateRight(toKing))
-                    };
-
-                    for (Direction d : adjacent) {
+                    // Try perpendicular (flanking around obstacles)
+                    Direction[] flank = {rotateLeft(toKing), rotateRight(toKing)};
+                    for (Direction d : flank) {
                         if (rc.canMove(d)) {
                             rc.move(d);
-                            System.out.println("ASSAULT_FLANK:" + round + ":" + id + ":moved " + d + " (flanking)");
+                            System.out.println("FLANK:" + round + ":" + id + ":moved " + d);
                             return;
                         }
                     }
 
-                    // Completely blocked - something is in the way
-                    System.out.println("ASSAULT_BLOCKED:" + round + ":" + id + ":all paths blocked, need support");
+                    // Try backing up one step to get better angle
+                    Direction back = opposite(toKing);
+                    if (rc.canMove(back)) {
+                        rc.move(back);
+                        System.out.println("REPOSITION:" + round + ":" + id + ":backing up to " + back);
+                        return;
+                    }
+
+                    // Try ANY direction to unstick
+                    for (Direction d : directions) {
+                        if (rc.canMove(d)) {
+                            rc.move(d);
+                            System.out.println("UNSTICK:" + round + ":" + id + ":moved " + d);
+                            return;
+                        }
+                    }
+
+                    System.out.println("STUCK:" + round + ":" + id + ":completely blocked");
                     return;
                 }
 
@@ -610,4 +624,128 @@ public class RobotPlayer {
         Direction.NORTH, Direction.NORTHEAST, Direction.EAST, Direction.SOUTHEAST,
         Direction.SOUTH, Direction.SOUTHWEST, Direction.WEST, Direction.NORTHWEST
     };
+
+    // === PATHFINDING (BFS) ===
+    private static int[] queueX = new int[900]; // 30x30 max
+    private static int[] queueY = new int[900];
+    private static boolean[][] visited = new boolean[60][60];
+    private static Direction[][] parent = new Direction[60][60];
+    private static boolean[][] passable = new boolean[60][60];
+    private static boolean mapScanned = false;
+
+    // Scan map for passability (once per rat)
+    private static void scanMap(RobotController rc) throws GameActionException {
+        if (mapScanned) return;
+
+        // Initialize all as passable
+        for (int x = 0; x < 60; x++) {
+            for (int y = 0; y < 60; y++) {
+                passable[x][y] = true;
+            }
+        }
+
+        // Mark impassable tiles we can sense
+        MapLocation me = rc.getLocation();
+        MapLocation[] visible = rc.getAllLocationsWithinRadiusSquared(me, 20);
+        for (MapLocation loc : visible) {
+            if (rc.canSenseLocation(loc)) {
+                passable[loc.x][loc.y] = rc.sensePassability(loc);
+            }
+        }
+
+        mapScanned = true;
+    }
+
+    // BFS pathfinding - returns direction to move
+    private static Direction bfs(MapLocation start, MapLocation target, int mapW, int mapH) {
+        if (start.equals(target)) return Direction.CENTER;
+
+        // Reset visited
+        for (int x = 0; x < mapW; x++) {
+            for (int y = 0; y < mapH; y++) {
+                visited[x][y] = false;
+                parent[x][y] = Direction.CENTER;
+            }
+        }
+
+        // BFS queue
+        int head = 0, tail = 0;
+        queueX[tail] = start.x;
+        queueY[tail] = start.y;
+        tail++;
+        visited[start.x][start.y] = true;
+
+        int[] dx = {0, 1, 1, 1, 0, -1, -1, -1};
+        int[] dy = {1, 1, 0, -1, -1, -1, 0, 1};
+
+        while (head < tail) {
+            int x = queueX[head];
+            int y = queueY[head];
+            head++;
+
+            for (int i = 0; i < 8; i++) {
+                int nx = x + dx[i];
+                int ny = y + dy[i];
+
+                if (nx < 0 || nx >= mapW || ny < 0 || ny >= mapH) continue;
+                if (visited[nx][ny] || !passable[nx][ny]) continue;
+
+                visited[nx][ny] = true;
+                parent[nx][ny] = directions[i];
+
+                queueX[tail] = nx;
+                queueY[tail] = ny;
+                tail++;
+
+                if (nx == target.x && ny == target.y) {
+                    // Backtrack to find first step
+                    return backtrack(start, target);
+                }
+            }
+        }
+
+        return Direction.CENTER;
+    }
+
+    private static Direction backtrack(MapLocation start, MapLocation target) {
+        int x = target.x;
+        int y = target.y;
+        Direction lastDir = Direction.CENTER;
+
+        while (true) {
+            Direction dir = parent[x][y];
+            if (dir == Direction.CENTER) break;
+
+            lastDir = dir;
+
+            // Move backwards
+            Direction rev = opposite(dir);
+            x += deltaX(rev);
+            y += deltaY(rev);
+
+            if (x == start.x && y == start.y) break;
+        }
+
+        return lastDir;
+    }
+
+    private static Direction opposite(Direction d) {
+        return directions[(d.ordinal() + 4) % 8];
+    }
+
+    private static int deltaX(Direction d) {
+        switch (d) {
+            case EAST: case NORTHEAST: case SOUTHEAST: return 1;
+            case WEST: case NORTHWEST: case SOUTHWEST: return -1;
+            default: return 0;
+        }
+    }
+
+    private static int deltaY(Direction d) {
+        switch (d) {
+            case NORTH: case NORTHEAST: case NORTHWEST: return 1;
+            case SOUTH: case SOUTHEAST: case SOUTHWEST: return -1;
+            default: return 0;
+        }
+    }
 }
