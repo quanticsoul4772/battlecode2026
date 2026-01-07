@@ -15,8 +15,8 @@ public class RobotPlayer {
     public static void run(RobotController rc) throws GameActionException {
         // Assign role at spawn (based on ID)
         if (myRole == -1) {
-            // ALL economy (only 5 rats total, all collectors)
-            myRole = 1;
+            // 50% combat (defend king), 50% economy (collect cheese)
+            myRole = (rc.getID() % 2 == 0) ? 0 : 1;
 
             String roleStr = (myRole == 0) ? "COMBAT" : "ECONOMY";
             System.out.println("SPAWN:" + rc.getRoundNum() + ":" + rc.getID() + ":role=" + roleStr);

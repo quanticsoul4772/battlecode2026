@@ -36,6 +36,11 @@ public class RatKing {
         rc.writeSharedArray(Communications.SLOT_KING_X, myLoc.x);
         rc.writeSharedArray(Communications.SLOT_KING_Y, myLoc.y);
 
+        // PRIORITY 0: Place rat traps for enemy defense (rounds 2-10)
+        if (!ratTrapsPlaced && round >= 2 && round <= 10 && globalCheese >= 30) {
+            placeRatTraps(rc);
+        }
+
         // PRIORITY 1: Place cat traps FIRST (rounds 5-20)
         // CRITICAL: Traps require action cooldown, so must pause spawning
         if (!trapsPlaced && round >= 5 && round <= 20 && globalCheese >= 30 && trapCount < 10) {
@@ -64,6 +69,8 @@ public class RatKing {
     }
 
     private static int spawnCount = 0;
+    private static boolean ratTrapsPlaced = false;
+    private static int ratTrapCount = 0;
 
     /**
      * Spawn baby rat at distance=2 (outside 3×3 king footprint).
@@ -237,6 +244,39 @@ public class RatKing {
         if (nearestCheese != null && rc.canPickUpCheese(nearestCheese)) {
             rc.pickUpCheese(nearestCheese);
             System.out.println("KING_COLLECT:" + rc.getRoundNum() + ":" + nearestCheese + " cheese=" + rc.getGlobalCheese());
+        }
+    }
+
+    /**
+     * Place rat traps around king for enemy rat defense.
+     */
+    private static void placeRatTraps(RobotController rc) throws GameActionException {
+        MapLocation kingLoc = rc.getLocation();
+
+        // Place rat traps in ring around king (distance 3-4)
+        for (Direction dir : DirectionUtil.ALL_DIRECTIONS) {
+            if (ratTrapCount >= 5) break;
+
+            for (int dist = 3; dist <= 4; dist++) {
+                if (ratTrapCount >= 5) break;
+
+                MapLocation trapLoc = kingLoc;
+                for (int i = 0; i < dist; i++) {
+                    trapLoc = trapLoc.add(dir);
+                }
+
+                if (rc.canPlaceRatTrap(trapLoc)) {
+                    rc.placeRatTrap(trapLoc);
+                    ratTrapCount++;
+                    System.out.println("RAT_TRAP:" + rc.getRoundNum() + ":" + trapLoc + " (defense:" + ratTrapCount + ")");
+                    break;
+                }
+            }
+        }
+
+        if (ratTrapCount >= 5 || rc.getRoundNum() > 10) {
+            ratTrapsPlaced = true;
+            System.out.println("RAT_DEFENSE:" + rc.getRoundNum() + ":Placed " + ratTrapCount + " rat traps");
         }
     }
 }

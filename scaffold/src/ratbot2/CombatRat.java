@@ -24,8 +24,50 @@ public class CombatRat {
             return;
         }
 
-        // PRIMARY MISSION: Distract cats from king
+        // Check for enemy rats (defend king first)
+        RobotInfo[] enemies = rc.senseNearbyRobots(20, rc.getTeam().opponent());
+        if (enemies.length > 0) {
+            // Enemy rats nearby - defend king
+            defendKing(rc, enemies);
+            return;
+        }
+
+        // No enemies - distract cats
         distractCats(rc);
+    }
+
+    /**
+     * Defend king from enemy rats.
+     */
+    private static void defendKing(RobotController rc, RobotInfo[] enemies) throws GameActionException {
+        MapLocation me = rc.getLocation();
+
+        // Get king position
+        int kingX = rc.readSharedArray(Communications.SLOT_KING_X);
+        int kingY = rc.readSharedArray(Communications.SLOT_KING_Y);
+        MapLocation kingLoc = new MapLocation(kingX, kingY);
+
+        // Position between enemy and king
+        RobotInfo nearest = enemies[0];
+        for (RobotInfo enemy : enemies) {
+            if (enemy.getLocation().distanceSquaredTo(kingLoc) < nearest.getLocation().distanceSquaredTo(kingLoc)) {
+                nearest = enemy;
+            }
+        }
+
+        MapLocation enemyLoc = nearest.getLocation();
+
+        // Attack if adjacent
+        if (me.distanceSquaredTo(enemyLoc) <= 2 && Vision.canSee(me, rc.getDirection(), enemyLoc, UnitType.BABY_RAT)) {
+            if (rc.canAttack(enemyLoc)) {
+                rc.attack(enemyLoc);
+                System.out.println("DEFEND:" + rc.getRoundNum() + ":attacked enemy!");
+                return;
+            }
+        }
+
+        // Move to intercept
+        Movement.moveToward(rc, enemyLoc);
     }
 
     /**
