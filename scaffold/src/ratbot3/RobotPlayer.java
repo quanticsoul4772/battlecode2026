@@ -69,15 +69,27 @@ public class RobotPlayer {
 
         System.out.println("KING:" + round + ":cheese=" + cheese + ":spawned=" + spawnCount + " visible=" + visibleRats);
 
-        // SIMPLE: Spawn EXACTLY 10 rats total, then STOP
-        // Don't spawn replacements - can't track deaths accurately (rats leave vision)
+        // SPAWNING STRATEGY:
+        // 1. Initial: Spawn 10 rats (rounds 1-10)
+        // 2. Replacement: Spawn 1 rat every 50 rounds to replace attrition
+        boolean shouldSpawn = false;
+
         if (spawnCount < 10) {
+            // Initial spawn phase
+            shouldSpawn = true;
+        } else if (round % 50 == 0 && spawnCount < 20) {
+            // Replacement spawn: 1 rat per 50 rounds (slow replacement)
+            shouldSpawn = true;
+            System.out.println("REPLACEMENT_INTERVAL:" + round + ":spawning replacement (1 per 50 rounds)");
+        }
+
+        if (shouldSpawn) {
             int cost = rc.getCurrentRatCost();
             if (cheese > cost + 100) {
                 spawnRat(rc);
+            } else if (round % 50 == 0) {
+                System.out.println("REPLACEMENT_BLOCKED:" + round + ":need cheese=" + (cost + 100) + " have=" + cheese);
             }
-        } else if (round % 100 == 0) {
-            System.out.println("SPAWN_COMPLETE:" + round + ":10 rats spawned, no more spawning");
         }
 
         // Minimal traps (after initial spawn complete)
