@@ -202,29 +202,36 @@ public class RobotPlayer {
             }
         }
 
-        // Can't see king - use last known position from shared array
+        // Can't see king - use shared array position
         int lastX = rc.readSharedArray(2);
         int lastY = rc.readSharedArray(3);
+        int posTimestamp = rc.readSharedArray(4);
 
         if (lastX != 0) {
-            MapLocation lastKnown = new MapLocation(lastX, lastY);
-            int dist = me.distanceSquaredTo(lastKnown);
+            MapLocation sharedPos = new MapLocation(lastX, lastY);
+            int dist = me.distanceSquaredTo(sharedPos);
+            int posAge = (round - posTimestamp + 1000) % 1000;
 
-            // If we're CLOSE to last known position but can't see king, SEARCH aggressively
+            // Check if position is fresh (updated recently by our king or another attacker)
+            if (posAge < 10) {
+                System.out.println("RUSH_FRESH:" + round + ":" + id + ":to updated pos " + sharedPos + " dist=" + dist + " age=" + posAge);
+                simpleMove(rc, sharedPos);
+                return;
+            }
+
+            // Stale position - search area around it
             if (dist <= 50) {
-                System.out.println("LOST_KING:" + round + ":" + id + ":near " + lastKnown + " dist=" + dist + " SEARCHING AREA");
-                // King moved - search in spiral around last known position
-                // Use round and ID for deterministic but varied search pattern
+                System.out.println("SEARCH_STALE:" + round + ":" + id + ":pos stale (" + posAge + " rounds old), searching near " + sharedPos);
+                // Search in expanding pattern
                 int searchDir = (id + round) % 8;
                 Direction searchDirection = directions[searchDir];
-                MapLocation searchTarget = lastKnown.add(searchDirection).add(searchDirection).add(searchDirection);
-                System.out.println("SEARCH_PATTERN:" + round + ":" + id + ":searching " + searchDirection + " from " + lastKnown);
+                MapLocation searchTarget = sharedPos.add(searchDirection).add(searchDirection).add(searchDirection);
                 simpleMove(rc, searchTarget);
                 return;
             }
 
-            System.out.println("RUSH:" + round + ":" + id + ":to last known " + lastKnown + " dist=" + dist);
-            simpleMove(rc, lastKnown);
+            System.out.println("RUSH:" + round + ":" + id + ":to " + sharedPos + " dist=" + dist);
+            simpleMove(rc, sharedPos);
             return;
         }
 
@@ -280,40 +287,57 @@ public class RobotPlayer {
         }
     }
 
+    private static int deliveryStuckCount = 0;
+    private static MapLocation lastDeliveryTarget = null;
+
     private static void deliver(RobotController rc) throws GameActionException {
         MapLocation me = rc.getLocation();
         int round = rc.getRoundNum();
         int id = rc.getID();
 
-        // Get king position from shared array
+        // Get king position
         int kingX = rc.readSharedArray(0);
         int kingY = rc.readSharedArray(1);
 
         if (kingX == 0) {
-            System.out.println("DELIVER_FAIL:" + round + ":" + id + ":no king pos in array");
+            System.out.println("DELIVER_FAIL:" + round + ":" + id + ":no king pos");
             return;
         }
 
         MapLocation kingLoc = new MapLocation(kingX, kingY);
         int dist = me.distanceSquaredTo(kingLoc);
 
-        // Log every delivery attempt
-        System.out.println("DELIVER_TRY:" + round + ":" + id + ":pos=" + me + " king=" + kingLoc + " dist=" + dist + " cheese=" + rc.getRawCheese());
-
-        // Close enough to transfer?
-        if (dist <= 9) {
-            if (rc.canTransferCheese(kingLoc, rc.getRawCheese())) {
-                int amount = rc.getRawCheese();
-                rc.transferCheese(kingLoc, amount);
-                System.out.println("TRANSFER_SUCCESS:" + round + ":" + id + ":amt=" + amount);
-                return;
-            } else {
-                System.out.println("TRANSFER_BLOCKED:" + round + ":" + id + ":close enough but transfer failed");
-            }
+        // Track if we're making progress toward king
+        if (kingLoc.equals(lastDeliveryTarget)) {
+            deliveryStuckCount++;
+        } else {
+            deliveryStuckCount = 0;
+            lastDeliveryTarget = kingLoc;
         }
 
-        // Move toward king
-        System.out.println("MOVING_TO_KING:" + round + ":" + id + ":need to get closer");
+        System.out.println("DELIVER:" + round + ":" + id + ":dist=" + dist + " cheese=" + rc.getRawCheese() + " delivStuck=" + deliveryStuckCount);
+
+        // Transfer if close
+        if (dist <= 9 && rc.canTransferCheese(kingLoc, rc.getRawCheese())) {
+            int amount = rc.getRawCheese();
+            rc.transferCheese(kingLoc, amount);
+            System.out.println("TRANSFER:" + round + ":" + id + ":SUCCESS amt=" + amount);
+            deliveryStuckCount = 0;
+            return;
+        }
+
+        // If stuck delivering for 10+ rounds, DROP cheese and resume collecting
+        // Let king pick it up, don't waste time navigating impossible paths
+        if (deliveryStuckCount >= 10 && dist > 50) {
+            System.out.println("DELIVERY_TIMEOUT:" + round + ":" + id + ":stuck " + deliveryStuckCount + " rounds, giving up, resuming collection");
+            deliveryStuckCount = 0;
+            // Resume collecting (will drop cheese naturally or find closer path later)
+            collect(rc);
+            return;
+        }
+
+        // Navigate to king
+        System.out.println("NAV_KING:" + round + ":" + id);
         simpleMove(rc, kingLoc);
     }
 
