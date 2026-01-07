@@ -28,9 +28,11 @@ public class RobotPlayer {
                 if (rc.getType() == UnitType.RAT_KING) {
                     RatKing.run(rc);
                 } else if (myRole == 0) {
-                    CombatRat.run(rc);  // 70% - Attack cats
+                    // Combat role: DISTRACT cats (keep them away from king)
+                    CombatRat.run(rc);
                 } else {
-                    EconomyRat.run(rc);  // 30% - Collect cheese
+                    // Economy role: Collect cheese (flee from cats)
+                    EconomyRat.run(rc);
                 }
             } catch (GameActionException e) {
                 System.out.println("GameActionException");

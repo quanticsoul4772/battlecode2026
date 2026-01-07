@@ -13,6 +13,20 @@ public class EconomyRat {
     private static final int DELIVERY_THRESHOLD = 15;  // Deliver when carrying this much
 
     public static void run(RobotController rc) throws GameActionException {
+        // EVASIVE: Check if cat nearby - flee if too close
+        RobotInfo[] nearby = rc.senseNearbyRobots(20, Team.NEUTRAL);
+        for (RobotInfo robot : nearby) {
+            if (robot.getType() == UnitType.CAT) {
+                int distToCat = rc.getLocation().distanceSquaredTo(robot.getLocation());
+
+                // If cat within 4 tiles (16 squared) - FLEE
+                if (distToCat <= 16) {
+                    fleeCat(rc, robot.getLocation());
+                    return;
+                }
+            }
+        }
+
         int rawCheese = rc.getRawCheese();
 
         if (rawCheese >= DELIVERY_THRESHOLD) {
@@ -20,6 +34,23 @@ public class EconomyRat {
         } else {
             collectCheese(rc);
         }
+    }
+
+    /**
+     * Flee from cat - drop cheese if necessary, get away.
+     */
+    private static void fleeCat(RobotController rc, MapLocation catLoc) throws GameActionException {
+        MapLocation me = rc.getLocation();
+        Direction away = me.directionTo(catLoc);
+        Direction flee = DirectionUtil.opposite(away);
+
+        // Move away from cat (toward king for safety)
+        int kingX = rc.readSharedArray(Communications.SLOT_KING_X);
+        int kingY = rc.readSharedArray(Communications.SLOT_KING_Y);
+        MapLocation kingLoc = new MapLocation(kingX, kingY);
+
+        Movement.moveToward(rc, kingLoc);
+        Debug.status(rc, "FLEE CAT!");
     }
 
     /**

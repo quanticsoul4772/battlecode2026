@@ -43,7 +43,8 @@ public class RatKing {
         trackCats(rc);
 
         // PRIORITY 3: Place cat traps (rounds 15-50, 10 total)
-        if (!trapsPlaced && round >= 15 && round <= 50 && globalCheese >= 150 && trapCount < 10) {
+        // Lower threshold - traps are CRITICAL for defense
+        if (!trapsPlaced && round >= 15 && round <= 50 && globalCheese >= 50 && trapCount < 10) {
             placeDefensiveTraps(rc);
         }
 
@@ -125,56 +126,60 @@ public class RatKing {
     }
 
     /**
-     * Place cat traps BETWEEN cat spawn (center) and king.
-     * Cats spawn at center, must path through traps to reach king.
-     * 10 traps × 100 damage = 1,000 damage (10% of cat HP).
+     * Place cat traps IN FRONT of king (between cat spawn and king).
+     * Simple strategy: Line of traps facing toward map center.
      */
     private static void placeDefensiveTraps(RobotController rc) throws GameActionException {
         MapLocation kingLoc = rc.getLocation();
         MapLocation center = new MapLocation(rc.getMapWidth() / 2, rc.getMapHeight() / 2);
 
-        // Direction from center toward king
-        Direction catToKing = center.directionTo(kingLoc);
+        // Direction from king TOWARD center (where cats come from)
+        Direction towardCenter = kingLoc.directionTo(center);
 
-        // Place traps along the path from center to king
-        for (int dist = 5; dist <= 10; dist++) {
+        // Place traps in front of king (toward center)
+        for (int dist = 3; dist <= 8; dist++) {
             if (trapCount >= 10) break;
 
-            // Primary line: Direct path from center toward king
-            MapLocation trapLoc = center;
+            // Main line: Straight toward center
+            MapLocation trapLoc = kingLoc;
             for (int i = 0; i < dist; i++) {
-                trapLoc = trapLoc.add(catToKing);
+                trapLoc = trapLoc.add(towardCenter);
             }
 
             if (rc.canPlaceCatTrap(trapLoc)) {
                 rc.placeCatTrap(trapLoc);
                 trapCount++;
-                System.out.println("TRAP:" + rc.getRoundNum() + ":" + trapLoc + " (intercept:" + trapCount + ")");
-                continue;
+                System.out.println("TRAP:" + rc.getRoundNum() + ":" + trapLoc + " (front:" + trapCount + ")");
             }
 
-            // Try adjacent to main path
-            Direction left = DirectionUtil.rotateLeft(catToKing);
-            Direction right = DirectionUtil.rotateRight(catToKing);
+            // Try left and right of main line
+            Direction left = DirectionUtil.rotateLeft(towardCenter);
+            Direction right = DirectionUtil.rotateRight(towardCenter);
 
             MapLocation leftTrap = trapLoc.add(left);
             if (trapCount < 10 && rc.canPlaceCatTrap(leftTrap)) {
                 rc.placeCatTrap(leftTrap);
                 trapCount++;
-                System.out.println("TRAP:" + rc.getRoundNum() + ":" + leftTrap + " (intercept:" + trapCount + ")");
+                System.out.println("TRAP:" + rc.getRoundNum() + ":" + leftTrap + " (front:" + trapCount + ")");
             }
 
             MapLocation rightTrap = trapLoc.add(right);
             if (trapCount < 10 && rc.canPlaceCatTrap(rightTrap)) {
                 rc.placeCatTrap(rightTrap);
                 trapCount++;
-                System.out.println("TRAP:" + rc.getRoundNum() + ":" + rightTrap + " (intercept:" + trapCount + ")");
+                System.out.println("TRAP:" + rc.getRoundNum() + ":" + rightTrap + " (front:" + trapCount + ")");
             }
         }
 
-        if (trapCount >= 10 || rc.getRoundNum() > 50) {
+        // Only stop trying after round 50 (keep trying if not all placed)
+        if (rc.getRoundNum() > 50) {
             trapsPlaced = true;
-            System.out.println("DEFENSE:" + rc.getRoundNum() + ":Placed " + trapCount + "/10 traps on cat path");
+            if (trapCount > 0) {
+                System.out.println("DEFENSE:" + rc.getRoundNum() + ":Gave up, placed " + trapCount + "/10 traps");
+            }
+        } else if (trapCount >= 10) {
+            trapsPlaced = true;
+            System.out.println("DEFENSE:" + rc.getRoundNum() + ":SUCCESS! Placed all 10 traps");
         }
     }
 }
