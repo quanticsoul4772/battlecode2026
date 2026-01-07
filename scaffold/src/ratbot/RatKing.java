@@ -71,58 +71,28 @@ public class RatKing {
             lastGlobalCheese = globalCheese;
         }
 
-        // Reposition if stuck in bad spawn location (BEFORE trying to spawn)
-        repositionIfNeeded(rc);
-
-        // Try to spawn baby rats
+        // Try to spawn baby rats (PRIORITY 1 - don't waste turns repositioning first!)
         trySpawn(rc);
+
+        // Reposition if stuck (ONLY after spawn attempt)
+        repositionIfNeeded(rc);
     }
 
     /**
-     * Attempt to spawn a baby rat if conditions are favorable.
-     * Includes economic spawn limiting to prevent cheese drain.
+     * Attempt to spawn a baby rat.
+     * AGGRESSIVE: Spawn every turn to build army for cat combat (50% of cooperation score).
      */
     private static void trySpawn(RobotController rc) throws GameActionException {
         int globalCheese = rc.getGlobalCheese();
-        int kingCount = Math.max(1, RobotUtil.countAllyKings(rc));
-        int currentRound = rc.getRoundNum();
 
-        // GATE 1: Minimum spawn interval (anti-spam)
-        if (currentRound - lastSpawnRound < MIN_SPAWN_INTERVAL) {
-            if (DebugConfig.DEBUG_SPAWNING && currentRound % 50 == 0) {
-                Debug.verbose(rc, "Spawn throttled: " + (currentRound - lastSpawnRound) + "/" + MIN_SPAWN_INTERVAL + " rounds since last");
-            }
-            return;
-        }
-
-        // GATE 2: Economic buffer (sustainability)
-        int currentCost = rc.getCurrentRatCost();
-        int economicBuffer = kingCount * SPAWN_ECONOMIC_BUFFER;
-
-        if (globalCheese < currentCost + economicBuffer) {
-            if (DebugConfig.DEBUG_SPAWNING && currentRound % 50 == 0) {
-                Debug.verbose(rc, "Spawn blocked: cheese=" + globalCheese + " < cost=" + currentCost + " + buffer=" + economicBuffer);
-            }
-            return;
-        }
-
-        // GATE 3: Survival check (existing logic)
-        int roundsOfCheese = globalCheese / (kingCount * 3);
-        if (roundsOfCheese < BehaviorConfig.WARNING_CHEESE_ROUNDS) {
-            return;  // Survival first
+        // Only gate: True emergency (prevent instant death)
+        if (globalCheese < 100) {
+            return;  // Critical survival mode only
         }
 
         // Try spawn locations at distance=2 (outside 3x3 king footprint)
         // King is 3x3, so adjacent tiles (distance=1) are part of king itself!
         Direction[] directions = DirectionUtil.ALL_DIRECTIONS;
-
-        // Debug spawn economics
-        if (DebugConfig.DEBUG_SPAWNING && currentRound % 50 == 0) {
-            int babyRats = RobotUtil.countAllyBabyRats(rc);
-            boolean actionReady = rc.isActionReady();
-
-            Debug.info(rc, "Spawn economics: cost=" + currentCost + " cheese=" + globalCheese + " buffer=" + economicBuffer + " rats=" + babyRats + " actionReady=" + actionReady);
-        }
 
         int attemptCount = 0;
         for (int i = directions.length; --i >= 0;) {
@@ -318,23 +288,20 @@ public class RatKing {
     private static boolean hasReachedGoodPosition = false;
 
     /**
-     * Reposition king if current location is bad for spawning.
-     * Only moves when <4 spawn locations available.
-     * Stops repositioning once a good position is found (to let rats deliver).
+     * Reposition king if COMPLETELY stuck (all 8 spawn locations blocked).
+     * Only runs after spawn attempt - don't waste early game on repositioning.
      */
     private static void repositionIfNeeded(RobotController rc) throws GameActionException {
-        // Once we find a good position, STAY THERE (let rats deliver)
-        if (hasReachedGoodPosition) {
-            return;
+        // Check if ALL spawn locations blocked (rare)
+        int openLocations = countOpenSpawnLocations(rc);
+
+        if (openLocations > 0) {
+            return; // Can spawn, don't waste time repositioning
         }
 
-        // Check if current position is adequate
-        if (isPositionGoodForSpawning(rc)) {
-            hasReachedGoodPosition = true; // Lock in position
-            if (DebugConfig.DEBUG_SPAWNING) {
-                Debug.info(rc, "Good position found! Staying at " + rc.getLocation());
-            }
-            return; // Position is fine, don't move
+        // All blocked - this is rare, try to move
+        if (DebugConfig.DEBUG_SPAWNING) {
+            Debug.warning(rc, "FULLY BLOCKED - all 8 spawn locations unavailable");
         }
 
         // Position is bad - find better location
