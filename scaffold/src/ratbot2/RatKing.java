@@ -52,6 +52,9 @@ public class RatKing {
         // PRIORITY 3: Track cats (kings have 360° vision)
         trackCats(rc);
 
+        // PRIORITY 4: Collect cheese (strategic)
+        collectCheese(rc);
+
         // Logging
         if (round % 20 == 0) {
             int income = (globalCheese - lastGlobalCheese + 60) / 2;
@@ -64,19 +67,19 @@ public class RatKing {
 
     /**
      * Spawn baby rat at distance=2 (outside 3×3 king footprint).
-     * MINIMAL: Very limited spawning to avoid congestion and cheese drain.
+     * MINIMAL: 5 economy rats for careful cheese collection.
      */
     private static void spawnBabyRat(RobotController rc) throws GameActionException {
-        // NO SPAWNING - king alone with traps is more effective
-        return;
-    }
+        // Spawn exactly 5 economy rats
+        if (spawnCount >= 5) {
+            return;
+        }
 
-    private static void spawnBabyRatOLD(RobotController rc) throws GameActionException {
         int cost = rc.getCurrentRatCost();
         int cheese = rc.getGlobalCheese();
 
-        // Can afford + small reserve
-        if (cheese < cost + 50) {
+        // Can afford + reserve
+        if (cheese < cost + 100) {
             return;
         }
 
@@ -87,6 +90,7 @@ public class RatKing {
             if (rc.canBuildRat(spawnLoc)) {
                 rc.buildRat(spawnLoc);
                 spawnCount++;
+                System.out.println("SPAWN:" + rc.getRoundNum() + ":collector #" + spawnCount);
                 return;
             }
         }
@@ -185,6 +189,54 @@ public class RatKing {
         } else if (trapCount >= 10) {
             trapsPlaced = true;
             System.out.println("DEFENSE:" + rc.getRoundNum() + ":SUCCESS! Placed all 10 traps");
+        }
+    }
+
+    /**
+     * King collects cheese from nearby tiles.
+     * Strategic: Only when cheese visible and king action ready.
+     */
+    private static void collectCheese(RobotController rc) throws GameActionException {
+        // Debug cheese collection attempts
+        if (rc.getRoundNum() % 100 == 0) {
+            System.out.println("KING_COLLECT_CHECK:" + rc.getRoundNum() + ":actionReady=" + rc.isActionReady());
+        }
+
+        if (!rc.isActionReady()) {
+            return; // Need action cooldown for pickup
+        }
+
+        // Look for cheese within king's 360° vision (5 tile radius)
+        MapLocation me = rc.getLocation();
+        MapLocation[] nearby = rc.getAllLocationsWithinRadiusSquared(me, 25);
+
+        int cheeseFound = 0;
+        MapLocation nearestCheese = null;
+        int nearestDist = Integer.MAX_VALUE;
+
+        for (MapLocation loc : nearby) {
+            if (rc.canSenseLocation(loc)) {
+                MapInfo info = rc.senseMapInfo(loc);
+                if (info.getCheeseAmount() > 0) {
+                    cheeseFound++;
+                    if (rc.canPickUpCheese(loc)) {
+                        int dist = me.distanceSquaredTo(loc);
+                        if (dist < nearestDist) {
+                            nearestDist = dist;
+                            nearestCheese = loc;
+                        }
+                    }
+                }
+            }
+        }
+
+        if (rc.getRoundNum() % 100 == 0 && cheeseFound > 0) {
+            System.out.println("KING_CHEESE_VISIBLE:" + rc.getRoundNum() + ":found=" + cheeseFound + " canPickup=" + (nearestCheese != null));
+        }
+
+        if (nearestCheese != null && rc.canPickUpCheese(nearestCheese)) {
+            rc.pickUpCheese(nearestCheese);
+            System.out.println("KING_COLLECT:" + rc.getRoundNum() + ":" + nearestCheese + " cheese=" + rc.getGlobalCheese());
         }
     }
 }
