@@ -266,7 +266,10 @@ public class RobotPlayer {
         simpleMove(rc, kingLoc);
     }
 
-    // === SIMPLE MOVEMENT ===
+    // === MOVEMENT WITH COMPREHENSIVE DEBUGGING ===
+    private static MapLocation lastPosition = null;
+    private static int stuckRounds = 0;
+
     private static void simpleMove(RobotController rc, MapLocation target) throws GameActionException {
         MapLocation me = rc.getLocation();
         Direction desired = me.directionTo(target);
@@ -274,70 +277,127 @@ public class RobotPlayer {
         int round = rc.getRoundNum();
         int id = rc.getID();
 
-        // Log every move attempt
-        System.out.println("MOVE_TRY:" + round + ":" + id + ":pos=" + me + " target=" + target + " want=" + desired + " facing=" + facing);
+        // STUCK DETECTION
+        if (me.equals(lastPosition)) {
+            stuckRounds++;
+        } else {
+            stuckRounds = 0;
+            lastPosition = me;
+        }
 
-        // Check for nearby friendly rats (traffic detection)
+        System.out.println("MOVE:" + round + ":" + id + ":pos=" + me + " target=" + target + " dist=" + me.distanceSquaredTo(target) + " want=" + desired + " facing=" + facing + " stuckRounds=" + stuckRounds);
+
+        // Check nearby friendlies (traffic detection)
         RobotInfo[] friendlies = rc.senseNearbyRobots(2, rc.getTeam());
-        System.out.println("TRAFFIC:" + round + ":" + id + ":nearby_friendlies=" + friendlies.length);
+        System.out.println("NEARBY:" + round + ":" + id + ":friendlies=" + friendlies.length);
 
-        // TRAFFIC JAM SOLUTION: Yield if too crowded
-        // EXCEPT when assaulting enemy king - always push through!
-        MapLocation enemyKing = new MapLocation(rc.readSharedArray(2), rc.readSharedArray(3));
-        int distToEnemy = me.distanceSquaredTo(enemyKing);
-        boolean assaulting = (distToEnemy < 100); // Within 10 tiles of enemy = assault mode
+        // Log friendly positions when crowded
+        if (friendlies.length > 0) {
+            StringBuilder friendlyPos = new StringBuilder();
+            for (RobotInfo f : friendlies) {
+                friendlyPos.append(f.getLocation()).append(",");
+            }
+            System.out.println("FRIENDLY_POS:" + round + ":" + id + ":" + friendlyPos);
+        }
 
-        if (friendlies.length >= 4 && !assaulting) {
-            // Too crowded AND not assaulting - yield
+        // Check all 8 directions for passability
+        if (stuckRounds >= 3) {
+            System.out.println("STUCK_ANALYSIS:" + round + ":" + id + ":analyzing all directions");
+            for (Direction d : directions) {
+                MapLocation checkLoc = me.add(d);
+                if (rc.canSenseLocation(checkLoc)) {
+                    MapInfo info = rc.senseMapInfo(checkLoc);
+                    RobotInfo robot = rc.senseRobotAtLocation(checkLoc);
+                    boolean canMove = rc.canMove(d);
+                    System.out.println("DIR_CHECK:" + round + ":" + id + ":dir=" + d + " loc=" + checkLoc + " passable=" + info.isPassable() + " hasRobot=" + (robot != null) + " canMove=" + canMove);
+                }
+            }
+        }
+
+        // STUCK RECOVERY: If stuck 3+ rounds, COMMIT to any available direction
+        // Don't keep trying desired - it's blocked!
+        if (stuckRounds >= 3) {
+            System.out.println("STUCK_RECOVERY:" + round + ":" + id + ":stuck " + stuckRounds + " rounds, taking ANY passable direction");
+
+            // Find FIRST passable direction and COMMIT to it
+            for (Direction d : directions) {
+                if (rc.canMove(d)) {
+                    if (rc.getDirection() == d) {
+                        if (rc.canMoveForward()) {
+                            rc.moveForward();
+                            System.out.println("ACTION:" + round + ":" + id + ":UNSTUCK moved " + d);
+                            return;
+                        }
+                    } else if (rc.canTurn()) {
+                        rc.turn(d);
+                        System.out.println("ACTION:" + round + ":" + id + ":UNSTUCK turning " + d);
+                        return;
+                    }
+                }
+            }
+
+            System.out.println("ACTION:" + round + ":" + id + ":TRAPPED - no passable directions at all");
+            return;
+        }
+
+        // TRAFFIC: If too crowded, yield (but only if not stuck long-term)
+        if (friendlies.length >= 4 && stuckRounds < 5) {
             int yieldSlot = round % 10;
             int mySlot = id % 10;
 
             if (mySlot != yieldSlot) {
-                System.out.println("YIELD:" + round + ":" + id + ":crowded=" + friendlies.length + " waiting");
+                System.out.println("YIELD:" + round + ":" + id + ":crowded=" + friendlies.length + " waiting for slot");
                 return;
+            } else {
+                System.out.println("MY_TURN:" + round + ":" + id + ":crowded=" + friendlies.length + " attempting move");
             }
         }
 
-        if (assaulting && friendlies.length >= 4) {
-            System.out.println("ASSAULT_MODE:" + round + ":" + id + ":dist=" + distToEnemy + " crowded=" + friendlies.length + " PUSH THROUGH!");
-        }
-
-        // If facing target and can move - move
+        // Try to move in desired direction
         if (facing == desired) {
             if (rc.canMoveForward()) {
                 rc.moveForward();
-                System.out.println("MOVED_FORWARD:" + round + ":" + id + ":success");
+                System.out.println("ACTION:" + round + ":" + id + ":MOVED_FORWARD to " + rc.getLocation());
                 return;
             } else {
-                System.out.println("MOVE_BLOCKED:" + round + ":" + id + ":facing target but can't move forward, checking why...");
-
-                // Blocked - check what's blocking
+                // Can't move forward - diagnose why
                 MapLocation nextLoc = me.add(desired);
+                System.out.println("BLOCKED_FORWARD:" + round + ":" + id + ":target_tile=" + nextLoc);
+
                 if (rc.canSenseLocation(nextLoc)) {
                     MapInfo info = rc.senseMapInfo(nextLoc);
                     RobotInfo blocker = rc.senseRobotAtLocation(nextLoc);
-                    boolean isWall = !info.isPassable();
-                    boolean isRat = (blocker != null && blocker.getTeam() == rc.getTeam());
 
-                    System.out.println("BLOCKED_BY:" + round + ":" + id + ":wall=" + isWall + " friendly=" + isRat);
+                    String blockType = "unknown";
+                    if (!info.isPassable()) blockType = "WALL";
+                    else if (blocker != null && blocker.getTeam() == rc.getTeam()) blockType = "FRIENDLY_RAT";
+                    else if (blocker != null && blocker.getTeam() == rc.getTeam().opponent()) blockType = "ENEMY_RAT";
+                    else if (blocker != null && blocker.getTeam() == Team.NEUTRAL) blockType = "CAT";
+                    else blockType = "COOLDOWN";
 
-                    // If blocked by wall, turn perpendicular to go around it
-                    if (isWall) {
-                        // Try perpendicular directions (left or right of desired)
-                        Direction[] perpendicular = {
-                            rotateLeft(desired),
-                            rotateRight(desired),
-                            rotateLeft(rotateLeft(desired)),
-                            rotateRight(rotateRight(desired))
-                        };
+                    System.out.println("BLOCK_REASON:" + round + ":" + id + ":" + blockType + " at " + nextLoc);
 
-                        for (Direction perp : perpendicular) {
-                            if (rc.canMove(perp)) {
-                                if (rc.canTurn()) {
-                                    rc.turn(perp);
-                                    System.out.println("WALL_DETOUR:" + round + ":" + id + ":turning=" + perp);
-                                    return;
-                                }
+                    // If wall, try perpendicular
+                    if (!info.isPassable()) {
+                        Direction[] perp = {rotateLeft(desired), rotateRight(desired)};
+                        for (Direction p : perp) {
+                            if (rc.canMove(p) && rc.canTurn()) {
+                                rc.turn(p);
+                                System.out.println("ACTION:" + round + ":" + id + ":WALL_DETOUR turned " + p);
+                                return;
+                            }
+                        }
+                    }
+
+                    // If friendly rat, try to back up or go around
+                    if (blocker != null && blocker.getTeam() == rc.getTeam()) {
+                        // Try perpendicular first
+                        Direction[] perp = {rotateLeft(desired), rotateRight(desired)};
+                        for (Direction p : perp) {
+                            if (rc.canMove(p) && rc.canTurn()) {
+                                rc.turn(p);
+                                System.out.println("ACTION:" + round + ":" + id + ":AVOID_FRIENDLY turned " + p);
+                                return;
                             }
                         }
                     }
@@ -345,29 +405,39 @@ public class RobotPlayer {
             }
         }
 
-        // Need to turn toward target
+        // Turn toward target if not facing
         if (facing != desired && rc.canTurn()) {
             rc.turn(desired);
-            System.out.println("TURNED:" + round + ":" + id + ":to=" + desired);
+            System.out.println("ACTION:" + round + ":" + id + ":TURNED from " + facing + " to " + desired);
             return;
         }
 
-        // Try ANY passable direction
+        // Can't turn - try moving current direction
+        if (rc.canMoveForward()) {
+            rc.moveForward();
+            System.out.println("ACTION:" + round + ":" + id + ":MOVED_CURRENT_DIR " + facing);
+            return;
+        }
+
+        // Completely blocked - try ANY passable direction
+        System.out.println("TRYING_ANY:" + round + ":" + id + ":main path blocked");
         for (Direction dir : directions) {
             if (rc.canMove(dir)) {
-                if (rc.getDirection() == dir && rc.canMoveForward()) {
-                    rc.moveForward();
-                    System.out.println("MOVED_ANY:" + round + ":" + id + ":dir=" + dir);
-                    return;
+                if (rc.getDirection() == dir) {
+                    if (rc.canMoveForward()) {
+                        rc.moveForward();
+                        System.out.println("ACTION:" + round + ":" + id + ":EMERGENCY_MOVE " + dir);
+                        return;
+                    }
                 } else if (rc.canTurn()) {
                     rc.turn(dir);
-                    System.out.println("TURNED_ANY:" + round + ":" + id + ":to=" + dir);
+                    System.out.println("ACTION:" + round + ":" + id + ":EMERGENCY_TURN to " + dir);
                     return;
                 }
             }
         }
 
-        System.out.println("STUCK:" + round + ":" + id + ":no movement possible");
+        System.out.println("ACTION:" + round + ":" + id + ":STUCK - NO VALID MOVES");
     }
 
     // Helper for perpendicular movement
