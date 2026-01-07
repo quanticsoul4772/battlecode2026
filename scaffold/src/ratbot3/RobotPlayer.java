@@ -185,18 +185,66 @@ public class RobotPlayer {
                 // FOUND ENEMY KING!
                 MapLocation actualKing = enemy.getLocation();
                 int dist = me.distanceSquaredTo(actualKing);
+                Direction toKing = me.directionTo(actualKing);
+                Direction facing = rc.getDirection();
 
-                System.out.println("KING_SPOTTED:" + round + ":" + id + ":at=" + actualKing + " dist=" + dist + " HP=" + enemy.getHealth());
+                // Debug attack capability
+                boolean actionReady = rc.isActionReady();
+                boolean canAtk = rc.canAttack(actualKing);
+                boolean facingKing = (facing == toKing);
 
-                // Attack if adjacent
-                if (dist <= 2 && rc.canAttack(actualKing)) {
-                    rc.attack(actualKing);
-                    System.out.println("ATTACK_KING:" + round + ":" + id + ":DAMAGE=10 HP=" + (enemy.getHealth() - 10));
+                System.out.println("KING_SPOTTED:" + round + ":" + id + ":dist=" + dist + " HP=" + enemy.getHealth() + " facing=" + facing + " toKing=" + toKing + " actionReady=" + actionReady + " canAttack=" + canAtk);
+
+                // Try to attack
+                if (canAtk) {
+                    if (facingKing) {
+                        rc.attack(actualKing);
+                        System.out.println("ATTACK_KING:" + round + ":" + id + ":HIT dist=" + dist);
+                        return;
+                    } else if (rc.canTurn()) {
+                        rc.turn(toKing);
+                        System.out.println("ATTACK_TURN:" + round + ":" + id + ":turning " + facing + "→" + toKing);
+                        return;
+                    }
+                } else if (dist <= 20) {
+                    System.out.println("ATTACK_BLOCKED:" + round + ":" + id + ":dist=" + dist + " actionReady=" + actionReady + " facingKing=" + facingKing);
+                }
+
+                // Chase - CRITICAL: When close (dist<=10), be aggressive
+                if (dist <= 10) {
+                    System.out.println("ASSAULT:" + round + ":" + id + ":dist=" + dist + " closing in");
+
+                    // Try direct move to king
+                    if (rc.canMove(toKing)) {
+                        rc.move(toKing);
+                        System.out.println("ASSAULT_ADVANCE:" + round + ":" + id + ":moved " + toKing);
+                        return;
+                    }
+
+                    // Can't move directly - try adjacent directions
+                    Direction[] adjacent = {
+                        rotateLeft(toKing),
+                        rotateRight(toKing),
+                        toKing,
+                        rotateLeft(rotateLeft(toKing)),
+                        rotateRight(rotateRight(toKing))
+                    };
+
+                    for (Direction d : adjacent) {
+                        if (rc.canMove(d)) {
+                            rc.move(d);
+                            System.out.println("ASSAULT_FLANK:" + round + ":" + id + ":moved " + d + " (flanking)");
+                            return;
+                        }
+                    }
+
+                    // Completely blocked - something is in the way
+                    System.out.println("ASSAULT_BLOCKED:" + round + ":" + id + ":all paths blocked, need support");
                     return;
                 }
 
-                // Chase
-                System.out.println("CHASE:" + round + ":" + id + ":pursuing " + actualKing);
+                // Far away - normal chase
+                System.out.println("CHASE:" + round + ":" + id + ":dist=" + dist);
                 simpleMove(rc, actualKing);
                 return;
             }
