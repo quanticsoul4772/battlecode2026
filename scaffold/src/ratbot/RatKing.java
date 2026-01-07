@@ -74,8 +74,46 @@ public class RatKing {
         // Try to spawn baby rats (PRIORITY 1 - don't waste turns repositioning first!)
         trySpawn(rc);
 
+        // Track cats for baby rats (kings have 360° vision)
+        trackCats(rc);
+
         // Reposition if stuck (ONLY after spawn attempt)
         repositionIfNeeded(rc);
+    }
+
+    /**
+     * Track cat positions in shared array for baby rats.
+     * Kings have 360° vision and can always see cats within range.
+     */
+    private static void trackCats(RobotController rc) throws GameActionException {
+        // Sense all nearby units
+        RobotInfo[] nearby = rc.senseNearbyRobots(-1, Team.NEUTRAL);
+
+        int catIndex = 0;
+        for (int i = nearby.length; --i >= 0;) {
+            if (nearby[i].getType() == UnitType.CAT && catIndex < 4) {
+                MapLocation catLoc = nearby[i].getLocation();
+
+                // Write to shared array (slots 3-10, 2 slots per cat)
+                int slotX = 3 + (catIndex * 2);
+                int slotY = 4 + (catIndex * 2);
+
+                rc.writeSharedArray(slotX, catLoc.x);
+                rc.writeSharedArray(slotY, catLoc.y);
+
+                if (DebugConfig.DEBUG_COMBAT && rc.getRoundNum() % 50 == 0) {
+                    Debug.info(rc, "Tracking cat #" + catIndex + " at " + catLoc);
+                }
+
+                catIndex++;
+            }
+        }
+
+        // Clear unused cat slots (mark as no cat)
+        for (int i = catIndex; i < 4; i++) {
+            int slotX = 3 + (i * 2);
+            rc.writeSharedArray(slotX, 0); // 0 = no cat
+        }
     }
 
     /**

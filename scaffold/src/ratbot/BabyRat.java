@@ -289,48 +289,95 @@ public class BabyRat {
     /**
      * ATTACK_CAT: Primary objective in cooperation mode (50% of score).
      * Swarm attack cats to deal damage.
+     * Uses shared array cat tracking when cat not in vision.
      */
     private static void attackCat(RobotController rc) throws GameActionException {
-        // Find nearest cat
+        // Try to find cat in vision first (most accurate)
         RobotInfo nearestCat = RobotUtil.findNearestCat(rc);
 
-        if (nearestCat == null) {
-            // No cat visible - return to exploration
+        if (nearestCat != null) {
+            // Cat in vision - attack directly
+            MapLocation catLoc = nearestCat.getLocation();
+            int distance = rc.getLocation().distanceSquaredTo(catLoc);
+
+            // Visual: Show attack target
+            if (DebugConfig.VISUAL_INDICATORS) {
+                Debug.markTarget(rc, catLoc, "ATTACK_CAT");
+            }
+
+            // Can we attack? (adjacent tiles, dist²≤2)
+            if (distance <= 2 && rc.canAttack(catLoc)) {
+                rc.attack(catLoc);
+
+                Logger.logCombat(
+                    rc.getRoundNum(),
+                    "BABY_RAT",
+                    rc.getID(),
+                    rc.getLocation().x, rc.getLocation().y,
+                    catLoc.x, catLoc.y,
+                    10, // base damage
+                    0, // no cheese spent
+                    nearestCat.getHealth() - 10
+                );
+
+                if (DebugConfig.DEBUG_COMBAT) {
+                    Debug.info(rc, "Attacked cat! HP: " + nearestCat.getHealth() + " -> " + (nearestCat.getHealth() - 10));
+                }
+                return;
+            }
+
+            // Move toward cat to get in attack range
+            moveToward(rc, catLoc);
+            return;
+        }
+
+        // Can't see cat in vision - check shared array for tracked positions
+        MapLocation trackedCat = getTrackedCatPosition(rc);
+
+        if (trackedCat == null) {
+            // No cats tracked anywhere - switch to EXPLORE
             currentState = State.EXPLORE;
             return;
         }
 
-        MapLocation catLoc = nearestCat.getLocation();
-        int distance = rc.getLocation().distanceSquaredTo(catLoc);
+        // Navigate to tracked cat position
+        moveToward(rc, trackedCat);
 
-        // Visual: Show attack target
         if (DebugConfig.VISUAL_INDICATORS) {
-            Debug.markTarget(rc, catLoc, "ATTACK_CAT");
+            Debug.markTarget(rc, trackedCat, "TRACKED_CAT");
         }
+    }
 
-        // Can we attack? (adjacent tiles, dist²≤2)
-        if (distance <= 2 && rc.canAttack(catLoc)) {
-            rc.attack(catLoc);
+    /**
+     * Get nearest tracked cat position from shared array.
+     * Kings write cat positions for baby rats to use.
+     * @return Nearest tracked cat location, or null if none tracked
+     */
+    private static MapLocation getTrackedCatPosition(RobotController rc) throws GameActionException {
+        MapLocation me = rc.getLocation();
+        MapLocation nearest = null;
+        int nearestDist = Integer.MAX_VALUE;
 
-            Logger.logCombat(
-                rc.getRoundNum(),
-                "BABY_RAT",
-                rc.getID(),
-                rc.getLocation().x, rc.getLocation().y,
-                catLoc.x, catLoc.y,
-                10, // base damage
-                0, // no cheese spent
-                nearestCat.getHealth() - 10
-            );
+        // Check all 4 cat tracking slots
+        for (int i = 0; i < 4; i++) {
+            int slotX = 3 + (i * 2);
+            int slotY = 4 + (i * 2);
 
-            if (DebugConfig.DEBUG_COMBAT) {
-                Debug.info(rc, "Attacked cat! HP: " + nearestCat.getHealth() + " -> " + (nearestCat.getHealth() - 10));
+            int catX = rc.readSharedArray(slotX);
+            int catY = rc.readSharedArray(slotY);
+
+            if (catX == 0) continue; // No cat in this slot
+
+            MapLocation catLoc = new MapLocation(catX, catY);
+            int dist = me.distanceSquaredTo(catLoc);
+
+            if (dist < nearestDist) {
+                nearestDist = dist;
+                nearest = catLoc;
             }
-            return;
         }
 
-        // Move toward cat to get in attack range
-        moveToward(rc, catLoc);
+        return nearest; // null if no cats tracked
     }
 
     /**

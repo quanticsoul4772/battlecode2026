@@ -229,7 +229,17 @@ public class BehaviorConfig {
      *
      * Array size: 64 slots × 10 bits (0-1023 per slot)
      */
-    public static final int SLOT_CHEESE_STATUS = 0;  // Emergency code or rounds remaining
+    public static final int SLOT_CHEESE_STATUS = 0;   // Emergency code or rounds remaining
+    public static final int SLOT_KING_X = 1;          // King X position
+    public static final int SLOT_KING_Y = 2;          // King Y position
+    public static final int SLOT_CAT1_X = 3;          // Cat #1 X position (0 if none)
+    public static final int SLOT_CAT1_Y = 4;          // Cat #1 Y position
+    public static final int SLOT_CAT2_X = 5;          // Cat #2 X position (0 if none)
+    public static final int SLOT_CAT2_Y = 6;          // Cat #2 Y position
+    public static final int SLOT_CAT3_X = 7;          // Cat #3 X position (0 if none)
+    public static final int SLOT_CAT3_Y = 8;          // Cat #3 Y position
+    public static final int SLOT_CAT4_X = 9;          // Cat #4 X position (0 if none)
+    public static final int SLOT_CAT4_Y = 10;         // Cat #4 Y position
     public static final int SLOT_OUR_CAT_DAMAGE = 29; // Our team cat damage
     public static final int SLOT_ENEMY_CAT_DAMAGE = 30; // Enemy cat damage
     public static final int SLOT_OUR_CHEESE_TRANSFERRED = 31; // Cheese transferred to kings
