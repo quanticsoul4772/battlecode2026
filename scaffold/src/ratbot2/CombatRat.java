@@ -24,16 +24,65 @@ public class CombatRat {
             return;
         }
 
-        // Check for enemy rats (defend king first)
+        // PRIORITY 1: Defend against enemy rats (prevent rushes)
         RobotInfo[] enemies = rc.senseNearbyRobots(20, rc.getTeam().opponent());
         if (enemies.length > 0) {
-            // Enemy rats nearby - defend king
             defendKing(rc, enemies);
             return;
         }
 
-        // No enemies - distract cats
-        distractCats(rc);
+        // PRIORITY 2: Attack cats (50% of cooperation score)
+        // Engine v1.0.4: Attacking cats does NOT trigger backstab!
+
+        // Get cat position from shared array
+        int catX = rc.readSharedArray(Communications.SLOT_PRIMARY_CAT_X);
+        int catY = rc.readSharedArray(Communications.SLOT_PRIMARY_CAT_Y);
+
+        if (catX != 0) {
+            // Cat tracked - navigate and attack
+            MapLocation catLoc = new MapLocation(catX, catY);
+
+            // Check if cat in vision
+            RobotInfo[] nearby = rc.senseNearbyRobots(20, Team.NEUTRAL);
+            for (RobotInfo robot : nearby) {
+                if (robot.getType() == UnitType.CAT) {
+                    attackCat(rc, robot);
+                    return;
+                }
+            }
+
+            // Cat tracked but not visible - navigate toward it
+            Movement.moveToward(rc, catLoc);
+            if (rc.getRoundNum() % 100 == 0) {
+                System.out.println("CAT_HUNT:" + rc.getRoundNum() + ":" + rc.getID() + ":tracking cat");
+            }
+            return;
+        }
+
+        // PRIORITY 3: Patrol at center (find cats)
+        MapLocation center = new MapLocation(rc.getMapWidth() / 2, rc.getMapHeight() / 2);
+        Movement.moveToward(rc, center);
+    }
+
+    /**
+     * Attack cat for cooperation score.
+     */
+    private static void attackCat(RobotController rc, RobotInfo cat) throws GameActionException {
+        MapLocation me = rc.getLocation();
+        MapLocation catLoc = cat.getLocation();
+        int dist = me.distanceSquaredTo(catLoc);
+
+        // Adjacent and in vision - attack
+        if (dist <= 2 && Vision.canSee(me, rc.getDirection(), catLoc, UnitType.BABY_RAT)) {
+            if (rc.canAttack(catLoc)) {
+                rc.attack(catLoc);
+                System.out.println("CAT_ATTACK:" + rc.getRoundNum() + ":" + rc.getID() + ":damage=10");
+                return;
+            }
+        }
+
+        // Not adjacent or not facing - move toward cat
+        Movement.moveToward(rc, catLoc);
     }
 
     /**

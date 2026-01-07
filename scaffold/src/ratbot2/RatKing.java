@@ -124,6 +124,10 @@ public class RatKing {
                 rc.writeSharedArray(slotX, catLoc.x);
                 rc.writeSharedArray(slotY, catLoc.y);
 
+                if (rc.getRoundNum() % 100 == 0) {
+                    System.out.println("CAT_TRACKED:" + rc.getRoundNum() + ":#" + catIndex + " at " + catLoc);
+                }
+
                 // Track closest for primary target
                 int dist = rc.getLocation().distanceSquaredTo(catLoc);
                 if (dist < closestDist) {
