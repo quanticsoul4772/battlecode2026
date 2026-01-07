@@ -444,12 +444,18 @@ public class RobotPlayer {
         }
 
         // Try to move in desired direction
-        if (facing == desired) {
-            if (rc.canMoveForward()) {
-                rc.moveForward();
-                System.out.println("ACTION:" + round + ":" + id + ":MOVED_FORWARD to " + rc.getLocation());
-                return;
+        // Use move(Direction) for direct movement (faster than turn+move)
+        if (rc.canMove(desired)) {
+            rc.move(desired);
+            if (facing == desired) {
+                System.out.println("ACTION:" + round + ":" + id + ":MOVED " + desired);
             } else {
+                System.out.println("ACTION:" + round + ":" + id + ":STRAFED " + desired + " (was facing " + facing + ")");
+            }
+            return;
+        } else {
+            // Can't move desired - check why
+            if (facing == desired) {
                 // Can't move forward - diagnose why
                 MapLocation nextLoc = me.add(desired);
                 System.out.println("BLOCKED_FORWARD:" + round + ":" + id + ":target_tile=" + nextLoc);
@@ -492,20 +498,25 @@ public class RobotPlayer {
                         }
                     }
                 }
+            } else {
+                // Not facing desired, check if should turn
+                System.out.println("NOT_FACING:" + round + ":" + id + ":want " + desired + " facing " + facing);
             }
         }
 
-        // Turn toward target if not facing
-        if (facing != desired && rc.canTurn()) {
-            rc.turn(desired);
-            System.out.println("ACTION:" + round + ":" + id + ":TURNED from " + facing + " to " + desired);
-            return;
+        // Try moving in ANY available direction (use move() for directional movement)
+        for (Direction dir : directions) {
+            if (rc.canMove(dir)) {
+                rc.move(dir);
+                System.out.println("ACTION:" + round + ":" + id + ":MOVED_ANY " + dir + " (was facing " + facing + ")");
+                return;
+            }
         }
 
-        // Can't turn - try moving current direction
-        if (rc.canMoveForward()) {
-            rc.moveForward();
-            System.out.println("ACTION:" + round + ":" + id + ":MOVED_CURRENT_DIR " + facing);
+        // Can't move anywhere - try turning
+        if (rc.canTurn() && facing != desired) {
+            rc.turn(desired);
+            System.out.println("ACTION:" + round + ":" + id + ":TURN " + desired);
             return;
         }
 
