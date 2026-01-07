@@ -183,8 +183,33 @@ public class RobotPlayer {
         int id = rc.getID();
         MapLocation me = rc.getLocation();
 
-        // FIRST: Check if we can SEE enemy king (vision-based tracking)
+        // FIRST: Look for ANY enemy to attack (baby rats easier than king!)
         RobotInfo[] enemies = rc.senseNearbyRobots(-1, rc.getTeam().opponent());
+
+        // Priority 1: Attack baby rats if we see any (easier targets, triggers backstab)
+        for (RobotInfo enemy : enemies) {
+            if (enemy.getType() == UnitType.BABY_RAT) {
+                MapLocation enemyLoc = enemy.getLocation();
+                int dist = me.distanceSquaredTo(enemyLoc);
+
+                System.out.println("ENEMY_RAT:" + round + ":" + id + ":dist=" + dist);
+
+                if (rc.canAttack(enemyLoc)) {
+                    rc.attack(enemyLoc);
+                    System.out.println("ATTACK_RAT:" + round + ":" + id + ":HIT");
+                    return;
+                }
+
+                // Chase enemy rat
+                if (dist <= 20) {
+                    System.out.println("CHASE_RAT:" + round + ":" + id);
+                    simpleMove(rc, enemyLoc);
+                    return;
+                }
+            }
+        }
+
+        // Priority 2: If no baby rats, go for king
         for (RobotInfo enemy : enemies) {
             if (enemy.getType() == UnitType.RAT_KING) {
                 // FOUND ENEMY KING!
@@ -215,48 +240,34 @@ public class RobotPlayer {
                     System.out.println("ATTACK_BLOCKED:" + round + ":" + id + ":dist=" + dist + " actionReady=" + actionReady + " facingKing=" + facingKing);
                 }
 
-                // FINAL APPROACH: When close (dist<=10), be aggressive to reach adjacent (dist<=2)
+                // ASSAULT: When close, use turn+moveForward (avoid strafe cooldown penalty!)
                 if (dist <= 10) {
-                    System.out.println("FINAL_APPROACH:" + round + ":" + id + ":dist=" + dist + " need<=2");
+                    System.out.println("ASSAULT:" + round + ":" + id + ":dist=" + dist);
 
-                    // Priority 1: Move DIRECTLY toward king
-                    if (rc.canMove(toKing)) {
-                        rc.move(toKing);
-                        System.out.println("ADVANCE:" + round + ":" + id + ":→" + toKing);
+                    // Turn to face king if not facing
+                    if (facing != toKing && rc.canTurn()) {
+                        rc.turn(toKing);
+                        System.out.println("TURN_KING:" + round + ":" + id + ":→" + toKing);
                         return;
                     }
 
-                    // Priority 2: Try all 8 directions, pick one that REDUCES distance
-                    Direction bestDir = Direction.CENTER;
-                    int bestDist = dist;
-
-                    for (Direction d : directions) {
-                        if (rc.canMove(d)) {
-                            MapLocation next = me.add(d);
-                            int nextDist = next.distanceSquaredTo(actualKing);
-                            if (nextDist < bestDist) {
-                                bestDist = nextDist;
-                                bestDir = d;
-                            }
-                        }
-                    }
-
-                    if (bestDir != Direction.CENTER) {
-                        rc.move(bestDir);
-                        System.out.println("APPROACH:" + round + ":" + id + ":→" + bestDir + " dist " + dist + "→" + bestDist);
+                    // Move forward toward king (10 cd, not 18)
+                    if (facing == toKing && rc.canMoveForward()) {
+                        rc.moveForward();
+                        System.out.println("PUSH:" + round + ":" + id + ":forward");
                         return;
                     }
 
-                    // Priority 3: Can't get closer, try moving to unstick
+                    // Blocked - try alternate directions with turn+move
                     for (Direction d : directions) {
-                        if (rc.canMove(d)) {
-                            rc.move(d);
-                            System.out.println("CIRCLE:" + round + ":" + id + ":→" + d + " (circling king)");
+                        if (rc.canTurn() && rc.getDirection() != d) {
+                            rc.turn(d);
+                            System.out.println("TURN_ALT:" + round + ":" + id + ":→" + d);
                             return;
                         }
                     }
 
-                    System.out.println("BLOCKED:" + round + ":" + id + ":no moves");
+                    System.out.println("ASSAULT_WAIT:" + round + ":" + id + ":cooldown");
                     return;
                 }
 
