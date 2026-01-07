@@ -25,22 +25,38 @@ public class CombatRat {
 
     /**
      * Attack primary target cat (focus fire).
-     * All combat rats attack same cat for faster kills.
+     * CRITICAL: Fight cats at MAP CENTER, not near king.
+     * Attacking near king ATTRACTS cat to king.
      */
     private static void attackPrimaryCat(RobotController rc) throws GameActionException {
+        MapLocation me = rc.getLocation();
+        MapLocation center = new MapLocation(rc.getMapWidth() / 2, rc.getMapHeight() / 2);
+
+        // Get king position
+        int kingX = rc.readSharedArray(Communications.SLOT_KING_X);
+        int kingY = rc.readSharedArray(Communications.SLOT_KING_Y);
+        MapLocation kingLoc = new MapLocation(kingX, kingY);
+
+        // Don't fight near king (attracts cat)
+        int distToKing = me.distanceSquaredTo(kingLoc);
+        if (distToKing < 64) { // Within 8 tiles of king
+            // Move toward center (away from king)
+            Movement.moveToward(rc, center);
+            Debug.status(rc, "→CENTER");
+            return;
+        }
+
         // Get primary target from shared array
         int catX = rc.readSharedArray(Communications.SLOT_PRIMARY_CAT_X);
         int catY = rc.readSharedArray(Communications.SLOT_PRIMARY_CAT_Y);
 
         if (catX == 0) {
-            // No cat tracked - patrol toward center
-            MapLocation center = new MapLocation(rc.getMapWidth() / 2, rc.getMapHeight() / 2);
+            // No cat tracked - patrol at center
             Movement.moveToward(rc, center);
             return;
         }
 
         MapLocation targetCat = new MapLocation(catX, catY);
-        MapLocation me = rc.getLocation();
 
         // Check if cat in vision
         RobotInfo[] nearby = rc.senseNearbyRobots(20, Team.NEUTRAL);

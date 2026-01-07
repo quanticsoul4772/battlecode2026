@@ -125,36 +125,56 @@ public class RatKing {
     }
 
     /**
-     * Place cat traps in defensive ring around king.
+     * Place cat traps BETWEEN cat spawn (center) and king.
+     * Cats spawn at center, must path through traps to reach king.
      * 10 traps × 100 damage = 1,000 damage (10% of cat HP).
      */
     private static void placeDefensiveTraps(RobotController rc) throws GameActionException {
         MapLocation kingLoc = rc.getLocation();
+        MapLocation center = new MapLocation(rc.getMapWidth() / 2, rc.getMapHeight() / 2);
 
-        // Try each direction at distance 3, 4, 5
-        for (Direction dir : DirectionUtil.ALL_DIRECTIONS) {
+        // Direction from center toward king
+        Direction catToKing = center.directionTo(kingLoc);
+
+        // Place traps along the path from center to king
+        for (int dist = 5; dist <= 10; dist++) {
             if (trapCount >= 10) break;
 
-            for (int dist = 3; dist <= 5; dist++) {
-                if (trapCount >= 10) break;
+            // Primary line: Direct path from center toward king
+            MapLocation trapLoc = center;
+            for (int i = 0; i < dist; i++) {
+                trapLoc = trapLoc.add(catToKing);
+            }
 
-                MapLocation trapLoc = kingLoc;
-                for (int i = 0; i < dist; i++) {
-                    trapLoc = trapLoc.add(dir);
-                }
+            if (rc.canPlaceCatTrap(trapLoc)) {
+                rc.placeCatTrap(trapLoc);
+                trapCount++;
+                System.out.println("TRAP:" + rc.getRoundNum() + ":" + trapLoc + " (intercept:" + trapCount + ")");
+                continue;
+            }
 
-                if (rc.canPlaceCatTrap(trapLoc)) {
-                    rc.placeCatTrap(trapLoc);
-                    trapCount++;
-                    System.out.println("TRAP:" + rc.getRoundNum() + ":" + trapLoc + " (total:" + trapCount + ")");
-                    break;
-                }
+            // Try adjacent to main path
+            Direction left = DirectionUtil.rotateLeft(catToKing);
+            Direction right = DirectionUtil.rotateRight(catToKing);
+
+            MapLocation leftTrap = trapLoc.add(left);
+            if (trapCount < 10 && rc.canPlaceCatTrap(leftTrap)) {
+                rc.placeCatTrap(leftTrap);
+                trapCount++;
+                System.out.println("TRAP:" + rc.getRoundNum() + ":" + leftTrap + " (intercept:" + trapCount + ")");
+            }
+
+            MapLocation rightTrap = trapLoc.add(right);
+            if (trapCount < 10 && rc.canPlaceCatTrap(rightTrap)) {
+                rc.placeCatTrap(rightTrap);
+                trapCount++;
+                System.out.println("TRAP:" + rc.getRoundNum() + ":" + rightTrap + " (intercept:" + trapCount + ")");
             }
         }
 
         if (trapCount >= 10 || rc.getRoundNum() > 50) {
             trapsPlaced = true;
-            System.out.println("DEFENSE:" + rc.getRoundNum() + ":Placed " + trapCount + "/10 cat traps");
+            System.out.println("DEFENSE:" + rc.getRoundNum() + ":Placed " + trapCount + "/10 traps on cat path");
         }
     }
 }
