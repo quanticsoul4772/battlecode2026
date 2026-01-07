@@ -1,5 +1,15 @@
 # SUCCESS CRITERIA - READ THIS FIRST
 
+## NEVER SAY "FINAL"
+
+This is a MONTH-LONG competition (Jan 7 - Jan 31).
+- ❌ Don't say "final submission", "final version", "final test"
+- ✅ Say "current submission", "latest version", "test results"
+
+We're on DAY 2. This is the BEGINNING.
+
+---
+
 ## WHAT MATTERS:
 
 ### ✅ SUCCESS = King survives by getting cheese deliveries
