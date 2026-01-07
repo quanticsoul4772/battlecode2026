@@ -325,43 +325,58 @@ public class RobotPlayer {
             System.out.println("FRIENDLY_POS:" + round + ":" + id + ":" + friendlyPos);
         }
 
-        // Check all 8 directions for passability
-        if (stuckRounds >= 3) {
-            System.out.println("STUCK_ANALYSIS:" + round + ":" + id + ":analyzing all directions");
+        // Analyze directions when stuck (every round when stuck, not just round 3)
+        if (stuckRounds >= 1 && round % 10 == 0) {
+            System.out.println("STUCK_ANALYSIS:" + round + ":" + id + ":stuck=" + stuckRounds + " analyzing");
+            int passableCount = 0;
             for (Direction d : directions) {
                 MapLocation checkLoc = me.add(d);
                 if (rc.canSenseLocation(checkLoc)) {
                     MapInfo info = rc.senseMapInfo(checkLoc);
                     RobotInfo robot = rc.senseRobotAtLocation(checkLoc);
                     boolean canMove = rc.canMove(d);
-                    System.out.println("DIR_CHECK:" + round + ":" + id + ":dir=" + d + " loc=" + checkLoc + " passable=" + info.isPassable() + " hasRobot=" + (robot != null) + " canMove=" + canMove);
+                    if (canMove) passableCount++;
+                    if (!canMove || stuckRounds >= 5) {
+                        // Only log blocked directions, or all if very stuck
+                        System.out.println("DIR:" + round + ":" + id + ":" + d + " passable=" + info.isPassable() + " robot=" + (robot != null) + " canMove=" + canMove);
+                    }
                 }
             }
+            System.out.println("ESCAPE_OPTIONS:" + round + ":" + id + ":passable=" + passableCount + "/8 directions");
         }
 
-        // STUCK RECOVERY: If stuck 3+ rounds, COMMIT to any available direction
-        // Don't keep trying desired - it's blocked!
-        if (stuckRounds >= 3) {
-            System.out.println("STUCK_RECOVERY:" + round + ":" + id + ":stuck " + stuckRounds + " rounds, taking ANY passable direction");
+        // STUCK RECOVERY: If stuck 2+ rounds, immediately escape
+        // Don't wait 3 rounds - move NOW!
+        if (stuckRounds >= 2) {
+            System.out.println("STUCK_RECOVERY:" + round + ":" + id + ":stuck " + stuckRounds + " rounds, ESCAPING NOW");
 
-            // Find FIRST passable direction and COMMIT to it
-            for (Direction d : directions) {
+            // Prioritize perpendicular to desired direction (likely less congested)
+            Direction[] escapeOrder = {
+                rotateLeft(desired),
+                rotateRight(desired),
+                rotateLeft(rotateLeft(desired)),
+                rotateRight(rotateRight(desired)),
+                directions[0], directions[1], directions[2], directions[3],
+                directions[4], directions[5], directions[6], directions[7]
+            };
+
+            for (Direction d : escapeOrder) {
                 if (rc.canMove(d)) {
                     if (rc.getDirection() == d) {
                         if (rc.canMoveForward()) {
                             rc.moveForward();
-                            System.out.println("ACTION:" + round + ":" + id + ":UNSTUCK moved " + d);
+                            System.out.println("ACTION:" + round + ":" + id + ":ESCAPED by moving " + d);
                             return;
                         }
                     } else if (rc.canTurn()) {
                         rc.turn(d);
-                        System.out.println("ACTION:" + round + ":" + id + ":UNSTUCK turning " + d);
+                        System.out.println("ACTION:" + round + ":" + id + ":ESCAPE_TURN to " + d);
                         return;
                     }
                 }
             }
 
-            System.out.println("ACTION:" + round + ":" + id + ":TRAPPED - no passable directions at all");
+            System.out.println("ACTION:" + round + ":" + id + ":TRAPPED completely surrounded");
             return;
         }
 
