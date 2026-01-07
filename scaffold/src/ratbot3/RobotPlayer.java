@@ -179,31 +179,47 @@ public class RobotPlayer {
         int id = rc.getID();
         MapLocation me = rc.getLocation();
 
-        // Get enemy king position from shared array
+        // FIRST: Check if we can SEE enemy king (vision-based tracking)
+        RobotInfo[] enemies = rc.senseNearbyRobots(-1, rc.getTeam().opponent());
+        for (RobotInfo enemy : enemies) {
+            if (enemy.getType() == UnitType.RAT_KING) {
+                // FOUND ENEMY KING IN VISION!
+                MapLocation actualKing = enemy.getLocation();
+                int dist = me.distanceSquaredTo(actualKing);
+
+                System.out.println("KING_SPOTTED:" + round + ":" + id + ":at=" + actualKing + " dist=" + dist + " HP=" + enemy.getHealth());
+
+                // Attack if adjacent
+                if (dist <= 2 && rc.canAttack(actualKing)) {
+                    rc.attack(actualKing);
+                    System.out.println("ATTACK_KING:" + round + ":" + id + ":DAMAGE=10 HP_LEFT=" + (enemy.getHealth() - 10));
+                    return;
+                }
+
+                // Chase the king
+                System.out.println("CHASE_KING:" + round + ":" + id + ":pursuing to " + actualKing);
+                simpleMove(rc, actualKing);
+                return;
+            }
+        }
+
+        // Can't see enemy king - use calculated position from shared array
         int enemyKingX = rc.readSharedArray(2);
         int enemyKingY = rc.readSharedArray(3);
 
         if (enemyKingX != 0) {
-            // Enemy king position known - RUSH IT!
-            MapLocation enemyKing = new MapLocation(enemyKingX, enemyKingY);
-            int dist = me.distanceSquaredTo(enemyKing);
+            MapLocation calculatedKing = new MapLocation(enemyKingX, enemyKingY);
+            int dist = me.distanceSquaredTo(calculatedKing);
 
-            System.out.println("RUSH:" + round + ":" + id + ":target=" + enemyKing + " dist=" + dist);
+            System.out.println("RUSH_CALC:" + round + ":" + id + ":target=" + calculatedKing + " dist=" + dist);
 
-            // Can we attack?
-            if (dist <= 2 && rc.canAttack(enemyKing)) {
-                rc.attack(enemyKing);
-                System.out.println("ATTACK_KING:" + round + ":" + id + ":DAMAGE=10");
-                return;
-            }
-
-            // Move toward enemy king
-            simpleMove(rc, enemyKing);
+            // Navigate to calculated position
+            simpleMove(rc, calculatedKing);
             return;
         }
 
-        // No enemy king known - explore center to find it
-        System.out.println("SEARCH:" + round + ":" + id);
+        // No target - search center
+        System.out.println("SEARCH_CENTER:" + round + ":" + id);
         MapLocation center = new MapLocation(rc.getMapWidth() / 2, rc.getMapHeight() / 2);
         simpleMove(rc, center);
     }
