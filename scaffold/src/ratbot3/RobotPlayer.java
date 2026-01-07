@@ -401,9 +401,48 @@ public class RobotPlayer {
             return;
         }
 
-        // Navigate to king
-        System.out.println("NAV_KING:" + round + ":" + id);
-        simpleMove(rc, kingLoc);
+        // Navigate to king - use distance-reducing approach
+        System.out.println("NAV_KING:" + round + ":" + id + ":dist=" + dist);
+
+        // Try direct move
+        Direction toKing = me.directionTo(kingLoc);
+        if (rc.canMove(toKing)) {
+            rc.move(toKing);
+            System.out.println("DELIVER_DIRECT:" + round + ":" + id + ":moved " + toKing);
+            return;
+        }
+
+        // Find direction that reduces distance most
+        Direction bestDir = Direction.CENTER;
+        int bestDist = dist;
+
+        for (Direction d : directions) {
+            if (rc.canMove(d)) {
+                MapLocation next = me.add(d);
+                int nextDist = next.distanceSquaredTo(kingLoc);
+                if (nextDist < bestDist) {
+                    bestDist = nextDist;
+                    bestDir = d;
+                }
+            }
+        }
+
+        if (bestDir != Direction.CENTER) {
+            rc.move(bestDir);
+            System.out.println("DELIVER_APPROACH:" + round + ":" + id + ":→" + bestDir + " dist " + dist + "→" + bestDist);
+            return;
+        }
+
+        // Can't reduce distance - try any movement to unstick
+        for (Direction d : directions) {
+            if (rc.canMove(d)) {
+                rc.move(d);
+                System.out.println("DELIVER_UNSTICK:" + round + ":" + id + ":moved " + d);
+                return;
+            }
+        }
+
+        System.out.println("DELIVER_BLOCKED:" + round + ":" + id + ":no moves available");
     }
 
     // === MOVEMENT WITH COMPREHENSIVE DEBUGGING ===
