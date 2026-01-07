@@ -11,9 +11,14 @@ import ratbot2.utils.*;
  */
 public class CombatRat {
     public static void run(RobotController rc) throws GameActionException {
-        // Debug: Verify combat rat is running
-        if (rc.getRoundNum() % 50 == 0) {
-            System.out.println("COMBAT_RAT:" + rc.getRoundNum() + ":" + rc.getID() + ":running");
+        int round = rc.getRoundNum();
+        int id = rc.getID();
+        MapLocation me = rc.getLocation();
+
+        // Periodic status report
+        if (round % 50 == 0) {
+            int hp = rc.getHealth();
+            System.out.println("COMBAT_STATUS:" + round + ":" + id + ":hp=" + hp + ":pos=" + me);
         }
 
         // Check emergency
@@ -31,15 +36,42 @@ public class CombatRat {
             return;
         }
 
-        // PRIORITY 2: Attack cats (50% of cooperation score)
-        // Engine v1.0.4: Attacking cats does NOT trigger backstab!
+        // PRIORITY 2: ATTACK ENEMY KING (aggressive strategy)
+        // Other teams do this - direct assault on enemy king!
+        int enemyKingX = rc.readSharedArray(Communications.SLOT_ENEMY_KING_X);
+        int enemyKingY = rc.readSharedArray(Communications.SLOT_ENEMY_KING_Y);
 
-        // Get cat position from shared array
+        if (enemyKingX != 0) {
+            // Enemy king location known - ATTACK IT!
+            MapLocation enemyKing = new MapLocation(enemyKingX, enemyKingY);
+
+            // Check if enemy king in vision
+            RobotInfo[] visibleEnemies = rc.senseNearbyRobots(20, rc.getTeam().opponent());
+            for (RobotInfo enemy : visibleEnemies) {
+                if (enemy.getType() == UnitType.RAT_KING) {
+                    // Attack enemy king!
+                    MapLocation enemyLoc = enemy.getLocation();
+                    if (rc.canAttack(enemyLoc) && Vision.canSee(me, rc.getDirection(), enemyLoc, UnitType.BABY_RAT)) {
+                        rc.attack(enemyLoc);
+                        System.out.println("KING_ASSAULT:" + rc.getRoundNum() + ":" + rc.getID() + ":attacking enemy king!");
+                        return;
+                    }
+                }
+            }
+
+            // Navigate toward enemy king
+            Movement.moveToward(rc, enemyKing);
+            if (rc.getRoundNum() % 100 == 0) {
+                System.out.println("COMBAT_ASSAULT:" + rc.getRoundNum() + ":" + rc.getID() + ":→enemy king at " + enemyKing);
+            }
+            return;
+        }
+
+        // PRIORITY 3: Attack cats (if no enemy king spotted yet)
         int catX = rc.readSharedArray(Communications.SLOT_PRIMARY_CAT_X);
         int catY = rc.readSharedArray(Communications.SLOT_PRIMARY_CAT_Y);
 
         if (catX != 0) {
-            // Cat tracked - navigate and attack
             MapLocation catLoc = new MapLocation(catX, catY);
 
             // Check if cat in vision
@@ -51,15 +83,12 @@ public class CombatRat {
                 }
             }
 
-            // Cat tracked but not visible - navigate toward it
+            // Navigate toward cat
             Movement.moveToward(rc, catLoc);
-            if (rc.getRoundNum() % 100 == 0) {
-                System.out.println("CAT_HUNT:" + rc.getRoundNum() + ":" + rc.getID() + ":tracking cat");
-            }
             return;
         }
 
-        // PRIORITY 3: Patrol at center (find cats)
+        // PRIORITY 4: Explore map to find enemy king or cats
         MapLocation center = new MapLocation(rc.getMapWidth() / 2, rc.getMapHeight() / 2);
         Movement.moveToward(rc, center);
     }

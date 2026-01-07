@@ -16,17 +16,59 @@ public class EconomyRat {
     private static boolean[][] localPassable = new boolean[60][60];
     private static boolean mapInitialized = false;
 
+    // Zone assignment (4 quadrants to prevent clustering)
+    private static int myZone = -1;
+    private static MapLocation zoneCenter = null;
+
     public static void run(RobotController rc) throws GameActionException {
-        // Build passability map on first run
+        int round = rc.getRoundNum();
+        int id = rc.getID();
+        MapLocation me = rc.getLocation();
+
+        // Build passability map and assign zone on first run
         if (!mapInitialized) {
             scanPassability(rc);
             mapInitialized = true;
-        }
-        if (rc.getRoundNum() % 50 == 0) {
-            System.out.println("ECON_RAT:" + rc.getRoundNum() + ":" + rc.getID() + ":running, cheese=" + rc.getRawCheese());
+
+            // Assign zone based on ID (4 quadrants)
+            myZone = id % 4;
+            int mapW = rc.getMapWidth();
+            int mapH = rc.getMapHeight();
+
+            // Calculate zone center
+            int zx = (myZone % 2 == 0) ? mapW / 4 : 3 * mapW / 4;
+            int zy = (myZone < 2) ? mapH / 4 : 3 * mapH / 4;
+            zoneCenter = new MapLocation(zx, zy);
+
+            String zoneName = (myZone == 0) ? "NW" : (myZone == 1) ? "NE" : (myZone == 2) ? "SE" : "SW";
+            System.out.println("ECON_INIT:" + round + ":" + id + ":zone=" + zoneName + " center=" + zoneCenter);
         }
 
-        // EVASIVE: Check if cat nearby - flee if too close
+        // Periodic status report
+        if (round % 50 == 0) {
+            int rawCheese = rc.getRawCheese();
+            int hp = rc.getHealth();
+            System.out.println("ECON_STATUS:" + round + ":" + id + ":cheese=" + rawCheese + ":hp=" + hp + ":pos=" + me);
+        }
+
+        // Get king position
+        int kingX = rc.readSharedArray(Communications.SLOT_KING_X);
+        int kingY = rc.readSharedArray(Communications.SLOT_KING_Y);
+        MapLocation kingLoc = new MapLocation(kingX, kingY);
+        int distToKing = me.distanceSquaredTo(kingLoc);
+
+        // PRIORITY 0: DISPERSE to assigned zone (first 30 rounds)
+        // Each rat goes to their ZONE CENTER to spread out across map
+        if (round <= 30) {
+            Movement.moveToward(rc, zoneCenter);
+
+            if (round % 10 == 0) {
+                System.out.println("ECON_DISPERSE:" + round + ":" + id + ":→zone=" + myZone + " target=" + zoneCenter + " dist=" + me.distanceSquaredTo(zoneCenter));
+            }
+            return;
+        }
+
+        // PRIORITY 1: EVASIVE - Check if cat nearby, flee if too close
         RobotInfo[] nearby = rc.senseNearbyRobots(20, Team.NEUTRAL);
         for (RobotInfo robot : nearby) {
             if (robot.getType() == UnitType.CAT) {
@@ -40,9 +82,16 @@ public class EconomyRat {
             }
         }
 
+        // PRIORITY 2: Collection/Delivery cycle
         int rawCheese = rc.getRawCheese();
 
+        if (round % 100 == 0 && rawCheese > 0) {
+            System.out.println("ECON_DECISION:" + round + ":" + id + ":cheese=" + rawCheese + " threshold=" + DELIVERY_THRESHOLD + " decision=" + (rawCheese >= DELIVERY_THRESHOLD ? "DELIVER" : "COLLECT"));
+        }
+
         if (rawCheese >= DELIVERY_THRESHOLD) {
+            // Deliver when carrying threshold
+            // Zone-based approach vectors (in deliverCheese) prevent clustering
             deliverCheese(rc);
         } else {
             collectCheese(rc);
@@ -54,6 +103,13 @@ public class EconomyRat {
      */
     private static void fleeCat(RobotController rc, MapLocation catLoc) throws GameActionException {
         MapLocation me = rc.getLocation();
+        int distToCat = me.distanceSquaredTo(catLoc);
+
+        // Log flee decision
+        if (rc.getRoundNum() % 20 == 0) {
+            System.out.println("ECON_FLEE:" + rc.getRoundNum() + ":" + rc.getID() + ":cat at " + catLoc + " dist=" + distToCat);
+        }
+
         Direction away = me.directionTo(catLoc);
         Direction flee = DirectionUtil.opposite(away);
 
@@ -68,25 +124,12 @@ public class EconomyRat {
 
     /**
      * Collect cheese from mines.
-     * STAY NEAR KING - don't wander far.
+     * FREE ROAM - go anywhere on map to find cheese!
      */
     private static void collectCheese(RobotController rc) throws GameActionException {
         MapLocation me = rc.getLocation();
 
-        // Get king position
-        int kingX = rc.readSharedArray(Communications.SLOT_KING_X);
-        int kingY = rc.readSharedArray(Communications.SLOT_KING_Y);
-        MapLocation kingLoc = new MapLocation(kingX, kingY);
-
-        int distToKing = me.distanceSquaredTo(kingLoc);
-
-        // If too far from king (>15 tiles), return immediately
-        if (distToKing > 225) {
-            Movement.moveToward(rc, kingLoc);
-            return;
-        }
-
-        // Find nearest cheese
+        // Find nearest cheese ANYWHERE (no distance restrictions!)
         MapLocation[] nearby = rc.getAllLocationsWithinRadiusSquared(me, 20);
         MapLocation nearestCheese = null;
         int nearestDist = Integer.MAX_VALUE;
@@ -96,9 +139,8 @@ public class EconomyRat {
                 MapInfo info = rc.senseMapInfo(loc);
                 if (info.getCheeseAmount() > 0) {
                     int dist = me.distanceSquaredTo(loc);
-                    // Only collect if cheese is closer to king than we are (don't wander away)
-                    int cheeseDist = loc.distanceSquaredTo(kingLoc);
-                    if (dist < nearestDist && cheeseDist <= distToKing + 50) {
+                    // CRITICAL: NO distance restrictions - collect ANY cheese we see!
+                    if (dist < nearestDist) {
                         nearestDist = dist;
                         nearestCheese = loc;
                     }
@@ -110,46 +152,84 @@ public class EconomyRat {
             // Pick up if possible
             if (rc.canPickUpCheese(nearestCheese)) {
                 rc.pickUpCheese(nearestCheese);
+                if (rc.getRoundNum() % 20 == 0) {
+                    System.out.println("ECON_PICKUP:" + rc.getRoundNum() + ":" + rc.getID() + ":cheese at " + nearestCheese + " now carrying=" + rc.getRawCheese());
+                }
             } else {
                 // Move toward cheese
                 Movement.moveToward(rc, nearestCheese);
+                if (rc.getRoundNum() % 50 == 0) {
+                    System.out.println("ECON_SEEKING:" + rc.getRoundNum() + ":" + rc.getID() + ":moving to " + nearestCheese);
+                }
             }
         } else {
-            // No cheese visible - orbit around king (don't go to center)
-            Direction toKing = me.directionTo(kingLoc);
-            Direction orbit = DirectionUtil.rotateLeft(toKing);
-            Movement.moveToward(rc, me.add(orbit).add(orbit));
+            // No cheese visible - PATROL assigned zone
+            if (rc.getRoundNum() % 100 == 0) {
+                System.out.println("ECON_PATROL:" + rc.getRoundNum() + ":" + rc.getID() + ":zone=" + myZone + " patrolling " + zoneCenter);
+            }
+            // Move toward zone center (stay in assigned quadrant)
+            Movement.moveToward(rc, zoneCenter);
         }
     }
 
     /**
      * Deliver cheese to king (within 3 tiles).
+     * Uses zone-based approach vectors to prevent clustering at king.
      */
     private static void deliverCheese(RobotController rc) throws GameActionException {
+        MapLocation me = rc.getLocation();
+        int round = rc.getRoundNum();
+        int id = rc.getID();
+
         // Get king position from shared array
         int kingX = rc.readSharedArray(Communications.SLOT_KING_X);
         int kingY = rc.readSharedArray(Communications.SLOT_KING_Y);
 
         if (kingX == 0 && kingY == 0) {
+            System.out.println("DELIVERY_FAIL:" + round + ":" + id + ":no king position");
             return; // No king position yet
         }
 
         MapLocation kingLoc = new MapLocation(kingX, kingY);
-        int distance = rc.getLocation().distanceSquaredTo(kingLoc);
+        int distance = me.distanceSquaredTo(kingLoc);
 
         // Debug delivery attempts
-        if (rc.getRoundNum() % 50 == 0) {
-            System.out.println("DELIVERY_ATTEMPT:" + rc.getRoundNum() + ":" + rc.getID() + ":dist=" + distance + " cheese=" + rc.getRawCheese());
+        if (round % 20 == 0) {
+            System.out.println("DELIVERY_ATTEMPT:" + round + ":" + id + ":dist=" + distance + " cheese=" + rc.getRawCheese());
         }
 
         // Can transfer? (distance ≤ 9 = 3 tiles)
         if (distance <= 9 && rc.canTransferCheese(kingLoc, rc.getRawCheese())) {
             int amount = rc.getRawCheese();
             rc.transferCheese(kingLoc, amount);
-            System.out.println("DELIVER:" + rc.getRoundNum() + ":" + rc.getID() + ":amount=" + amount);
+            System.out.println("DELIVER:" + round + ":" + id + ":amount=" + amount);
+            return;
+        }
+
+        // TRAFFIC MANAGEMENT: Use zone-based approach to king
+        // Instead of all rats converging from same direction, approach from zone side
+        // This creates 4 approach lanes instead of 1 congestion point
+
+        if (distance > 25) {
+            // Far from king - navigate toward zone-specific approach point
+            // Approach point is 5 tiles from king in direction of our zone
+            Direction fromZone = Direction.NORTH;
+            switch (myZone) {
+                case 0: fromZone = Direction.NORTHWEST; break;  // NW zone approaches from NW
+                case 1: fromZone = Direction.NORTHEAST; break;  // NE zone approaches from NE
+                case 2: fromZone = Direction.SOUTHEAST; break;  // SE zone approaches from SE
+                case 3: fromZone = Direction.SOUTHWEST; break;  // SW zone approaches from SW
+            }
+
+            MapLocation approachPoint = kingLoc;
+            for (int i = 0; i < 5; i++) {
+                approachPoint = approachPoint.add(fromZone);
+            }
+
+            Movement.moveToward(rc, approachPoint);
         } else {
-            // Use advanced pathfinding to navigate to king
-            Movement.moveTowardAdvanced(rc, kingLoc, localPassable);
+            // Close to king - final approach
+            Movement.moveToward(rc, kingLoc);
         }
     }
 

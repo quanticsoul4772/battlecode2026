@@ -12,7 +12,7 @@ public class Movement {
     private static MapLocation lastPos = null;
     private static int stuckCount = 0;
     /**
-     * Move toward target with obstacle avoidance.
+     * Move toward target with obstacle avoidance and collision prevention.
      * Returns after turning - move happens next turn (cooldown fix).
      */
     public static void moveToward(RobotController rc, MapLocation target) throws GameActionException {
@@ -20,15 +20,38 @@ public class Movement {
         Direction toTarget = me.directionTo(target);
         Direction facing = rc.getDirection();
 
+        // ANTI-CLUSTERING: If surrounded by too many friendlies, move AWAY first
+        RobotInfo[] nearbyFriendlies = rc.senseNearbyRobots(2, rc.getTeam());
+        if (nearbyFriendlies.length >= 3) {
+            // Too crowded - pick random direction away from crowd
+            Direction escape = DirectionUtil.ALL_DIRECTIONS[(rc.getID() + rc.getRoundNum()) % 8];
+            if (rc.canMove(escape)) {
+                if (rc.getDirection() == escape && rc.canMoveForward()) {
+                    rc.moveForward();
+                    if (rc.getRoundNum() % 50 == 0) {
+                        System.out.println("DECROWD:" + rc.getRoundNum() + ":" + rc.getID() + ":escaping crowd");
+                    }
+                    return;
+                } else if (rc.canTurn()) {
+                    rc.turn(escape);
+                    return;
+                }
+            }
+        }
+
         // Already facing target - try to move
         if (facing == toTarget) {
-            if (rc.canMoveForward()) {
+            MapLocation nextLoc = me.add(toTarget);
+
+            // COLLISION CHECK: Don't move onto friendly rat
+            if (!isFriendlyOccupied(rc, nextLoc) && rc.canMoveForward()) {
                 rc.moveForward();
                 return;
             }
-            // Blocked forward - try alternatives below
+
+            // Blocked - find alternative
             if (rc.getRoundNum() % 50 == 0) {
-                System.out.println("MOVE_BLOCKED:" + rc.getRoundNum() + ":" + rc.getID() + ":facing=" + facing + " blocked forward");
+                System.out.println("MOVE_BLOCKED:" + rc.getRoundNum() + ":" + rc.getID() + ":facing=" + facing + " blocked");
             }
         }
 
@@ -45,34 +68,48 @@ public class Movement {
         }
 
         // Blocked - try alternative directions more aggressively
+        // CRITICAL: When stuck, try ANY direction to escape
         Direction[] alternatives = DirectionUtil.ALL_DIRECTIONS;
         for (Direction dir : alternatives) {
-            // Try moving in any available direction
+            // Check if this direction is passable
             if (rc.canMove(dir)) {
                 if (rc.getDirection() == dir) {
                     if (rc.canMoveForward()) {
                         rc.moveForward();
+                        if (rc.getRoundNum() % 100 == 0) {
+                            System.out.println("MOVE_ALT:" + rc.getRoundNum() + ":" + rc.getID() + ":escaped via " + dir);
+                        }
                         return;
                     }
                 } else if (rc.canTurn()) {
                     rc.turn(dir);
+                    if (rc.getRoundNum() % 100 == 0) {
+                        System.out.println("MOVE_TURN:" + rc.getRoundNum() + ":" + rc.getID() + ":turning to " + dir);
+                    }
                     return;
                 }
             }
         }
 
-        // Completely stuck - try random direction
+        // Completely stuck - try random direction (deterministic but varied)
+        int seed = rc.getID() * 31 + rc.getRoundNum();
         for (int i = 0; i < 8; i++) {
-            Direction random = DirectionUtil.ALL_DIRECTIONS[(rc.getID() + rc.getRoundNum() + i) % 8];
+            Direction random = DirectionUtil.ALL_DIRECTIONS[(seed + i) % 8];
             if (rc.canMove(random)) {
                 if (rc.getDirection() == random && rc.canMoveForward()) {
                     rc.moveForward();
+                    System.out.println("MOVE_RANDOM:" + rc.getRoundNum() + ":" + rc.getID() + ":escaped via random " + random);
                     return;
                 } else if (rc.canTurn()) {
                     rc.turn(random);
                     return;
                 }
             }
+        }
+
+        // Still stuck - log it
+        if (rc.getRoundNum() % 20 == 0) {
+            System.out.println("MOVE_STUCK:" + rc.getRoundNum() + ":" + rc.getID() + ":completely stuck at " + rc.getLocation());
         }
     }
 
@@ -143,5 +180,16 @@ public class Movement {
                 }
             }
         }
+    }
+
+    /**
+     * Check if location is occupied by a friendly rat.
+     * Used for collision avoidance to prevent traffic jams.
+     */
+    private static boolean isFriendlyOccupied(RobotController rc, MapLocation loc) throws GameActionException {
+        if (!rc.canSenseLocation(loc)) return false;
+
+        RobotInfo robot = rc.senseRobotAtLocation(loc);
+        return robot != null && robot.getTeam() == rc.getTeam();
     }
 }

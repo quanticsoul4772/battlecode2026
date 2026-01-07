@@ -58,18 +58,43 @@ public class RobotPlayer {
             System.out.println("ENEMY:" + round + ":[" + enemyX + "," + enemyY + "]");
         }
 
-        System.out.println("KING:" + round + ":cheese=" + cheese + ":rats=" + spawnCount);
-
-        // CONTROLLED SPAWN: 10 rats total (stop at 10 to keep small)
-        if (spawnCount < 10) {
-            int cost = rc.getCurrentRatCost();
-            if (cheese > cost + 100) {
-                spawnRat(rc);
+        // COUNT VISIBLE BABY RATS (limited by vision range)
+        RobotInfo[] team = rc.senseNearbyRobots(-1, rc.getTeam());
+        int visibleRats = 0;
+        for (RobotInfo r : team) {
+            if (r.getType() == UnitType.BABY_RAT) {
+                visibleRats++;
             }
         }
 
-        // Minimal traps (after spawning done)
-        if (round >= 50 && trapCount < 3 && cheese > 300) {
+        System.out.println("KING:" + round + ":cheese=" + cheese + ":spawned=" + spawnCount + " visible=" + visibleRats);
+
+        // SPAWN STRATEGY: Initial 10, then replacements up to max 20
+        // Can't track exact deaths (rats leave vision), but can spawn replacements periodically
+        boolean shouldSpawn = false;
+
+        if (spawnCount < 10) {
+            // Initial spawn phase - get to 10 rats
+            shouldSpawn = true;
+        } else if (spawnCount < 20 && visibleRats < 8) {
+            // Replacement phase - if many rats not visible, likely died
+            shouldSpawn = true;
+            System.out.println("REPLACEMENT:" + round + ":visible=" + visibleRats + " (likely deaths, spawning replacement)");
+        } else if (spawnCount >= 20 && round % 100 == 0) {
+            System.out.println("MAX_SPAWNED:" + round + ":spawned " + spawnCount + " total, no more spawns");
+        }
+
+        if (shouldSpawn) {
+            int cost = rc.getCurrentRatCost();
+            if (cheese > cost + 150) {
+                spawnRat(rc);
+            } else if (round % 50 == 0) {
+                System.out.println("SPAWN_PAUSED:" + round + ":need=" + (cost + 150) + " have=" + cheese);
+            }
+        }
+
+        // Minimal traps (after initial spawn complete)
+        if (spawnCount >= 10 && trapCount < 3 && cheese > 300) {
             placeCatTrap(rc);
         }
     }

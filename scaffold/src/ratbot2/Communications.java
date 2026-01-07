@@ -25,6 +25,14 @@ public class Communications {
     public static final int SLOT_PRIMARY_CAT_X = 11;
     public static final int SLOT_PRIMARY_CAT_Y = 12;
 
-    // Reserved for future
+    // Enemy King Tracking
+    public static final int SLOT_ENEMY_KING_X = 13;
+    public static final int SLOT_ENEMY_KING_Y = 14;
+
+    // Map Boundaries (for zone calculation)
+    public static final int SLOT_MAP_WIDTH = 15;
+    public static final int SLOT_MAP_HEIGHT = 16;
+
+    // Reserved slots 17-63 available
     public static final int EMERGENCY_CRITICAL = 999;
 }
