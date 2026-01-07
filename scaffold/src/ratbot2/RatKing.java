@@ -76,26 +76,20 @@ public class RatKing {
 
     /**
      * Spawn baby rat at distance=2 (outside 3×3 king footprint).
-     * ONE AT A TIME: Spawn with 100 round delays to avoid congestion.
+     * EARLY DEFENSE: Spawn 15 rats in first 50 rounds (assume rushes).
      */
     private static void spawnBabyRat(RobotController rc) throws GameActionException {
         int round = rc.getRoundNum();
-
-        // Spawn 1 rat every 100 rounds (max 5 total)
-        if (spawnCount >= 5) {
-            return;
-        }
-
-        // Big delay between spawns (avoid congestion)
-        if (round - lastSpawnRound < 100 && spawnCount > 0) {
-            return;
-        }
-
         int cost = rc.getCurrentRatCost();
         int cheese = rc.getGlobalCheese();
 
-        // Can afford + reserve
-        if (cheese < cost + 100) {
+        // PHASE 1: Early defense (assume rushes)
+        if (round <= 50 && spawnCount < 15) {
+            if (cheese < cost + 50) return;
+            // Spawn for rush defense
+        }
+        // PHASE 2: After round 50, stop spawning (economy focus)
+        else {
             return;
         }
 
