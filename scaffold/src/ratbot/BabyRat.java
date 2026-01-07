@@ -300,13 +300,33 @@ public class BabyRat {
             MapLocation catLoc = nearestCat.getLocation();
             int distance = rc.getLocation().distanceSquaredTo(catLoc);
 
+            // EMERGENCY: Check if cat threatening king
+            int kingX = rc.readSharedArray(1);
+            int kingY = rc.readSharedArray(2);
+            MapLocation kingLoc = new MapLocation(kingX, kingY);
+            int catToKingDist = catLoc.distanceSquaredTo(kingLoc);
+
+            // If cat within 5 tiles of king AND we're close to cat - THROW
+            if (catToKingDist <= 25 && distance <= 9) {
+                if (emergencyThrowAtCat(rc, catLoc)) {
+                    return; // Threw, done
+                }
+            }
+
             // Visual: Show attack target
             if (DebugConfig.VISUAL_INDICATORS) {
                 Debug.markTarget(rc, catLoc, "ATTACK_CAT");
             }
 
-            // Can we attack? (adjacent tiles, dist²≤2)
-            if (distance <= 2 && rc.canAttack(catLoc)) {
+            // Check if in vision cone (required for attack)
+            boolean inVision = Vision.canSee(rc.getLocation(), rc.getDirection(), catLoc, UnitType.BABY_RAT);
+
+            if (DebugConfig.DEBUG_COMBAT && rc.getRoundNum() % 10 == 0) {
+                Debug.verbose(rc, "Cat check: dist²=" + distance + " inVision=" + inVision + " canAttack=" + rc.canAttack(catLoc));
+            }
+
+            // Can we attack? (adjacent + in vision cone + action ready)
+            if (distance <= 2 && inVision && rc.canAttack(catLoc)) {
                 rc.attack(catLoc);
 
                 Logger.logCombat(
@@ -321,12 +341,21 @@ public class BabyRat {
                 );
 
                 if (DebugConfig.DEBUG_COMBAT) {
-                    Debug.info(rc, "Attacked cat! HP: " + nearestCat.getHealth() + " -> " + (nearestCat.getHealth() - 10));
+                    Debug.info(rc, "ATTACKED cat! HP now " + (nearestCat.getHealth() - 10));
                 }
                 return;
             }
 
-            // Move toward cat to get in attack range
+            // Need to face cat first or get closer
+            if (!inVision || distance > 2) {
+                moveToward(rc, catLoc); // Will turn to face + move closer
+                return;
+            }
+
+            // Adjacent and in vision but can't attack - debug why
+            if (DebugConfig.DEBUG_COMBAT) {
+                Debug.warning(rc, "Can't attack cat! dist=" + distance + " inVision=" + inVision + " actionReady=" + rc.isActionReady());
+            }
             moveToward(rc, catLoc);
             return;
         }
@@ -346,6 +375,39 @@ public class BabyRat {
         if (DebugConfig.VISUAL_INDICATORS) {
             Debug.markTarget(rc, trackedCat, "TRACKED_CAT");
         }
+    }
+
+    /**
+     * Emergency defense: throw rat at cat to stun it.
+     * Sacrifices one rat to buy 2 turns for king survival.
+     */
+    private static boolean emergencyThrowAtCat(RobotController rc, MapLocation catLoc) throws GameActionException {
+        // Find adjacent ally to throw
+        RobotInfo[] allies = rc.senseNearbyRobots(2, rc.getTeam());
+
+        for (int i = allies.length; --i >= 0;) {
+            if (allies[i].getType() != UnitType.BABY_RAT) continue;
+
+            MapLocation ratLoc = allies[i].getLocation();
+
+            if (rc.canCarryRat(ratLoc)) {
+                rc.carryRat(ratLoc);
+
+                // Face cat
+                Direction toCat = rc.getLocation().directionTo(catLoc);
+                if (rc.getDirection() != toCat && rc.canTurn()) {
+                    rc.turn(toCat);
+                    return false; // Throw next turn
+                }
+
+                if (rc.canThrowRat()) {
+                    rc.throwRat();
+                    System.out.println("THROW:" + rc.getRoundNum() + ":" + rc.getID() + ":Threw rat at cat " + catLoc);
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     /**

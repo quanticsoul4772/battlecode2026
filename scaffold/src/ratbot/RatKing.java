@@ -16,10 +16,7 @@ public class RatKing {
 
     private static int lastGlobalCheese = 2500;
     private static int lastSpawnRound = 0;  // Track when we last spawned
-
-    // Spawn rate limiting
-    private static final int MIN_SPAWN_INTERVAL = 5;  // Minimum rounds between spawns
-    private static final int SPAWN_ECONOMIC_BUFFER = 300;  // Buffer cheese per king
+    private static boolean defensiveTrapsPlaced = false;  // Track if we placed cat traps
 
     public static void run(RobotController rc) throws GameActionException {
         int round = rc.getRoundNum();
@@ -77,8 +74,45 @@ public class RatKing {
         // Track cats for baby rats (kings have 360° vision)
         trackCats(rc);
 
+        // Place defensive cat traps (one-time, round 15-20)
+        if (!defensiveTrapsPlaced && round >= 15 && globalCheese >= 200) {
+            placeCatTraps(rc);
+        }
+
         // Reposition if stuck (ONLY after spawn attempt)
         repositionIfNeeded(rc);
+    }
+
+    /**
+     * Place cat traps in defensive perimeter around king.
+     * Creates barrier to protect king from cat attacks.
+     */
+    private static void placeCatTraps(RobotController rc) throws GameActionException {
+        MapLocation kingLoc = rc.getLocation();
+        int placed = 0;
+
+        // Place traps in ring around king (distance 3-5)
+        for (int d = 0; d < DirectionUtil.ALL_DIRECTIONS.length && placed < 10; d++) {
+            Direction dir = DirectionUtil.ALL_DIRECTIONS[d];
+
+            // Try distance 3, 4, 5 from king
+            for (int dist = 3; dist <= 5 && placed < 10; dist++) {
+                MapLocation trapLoc = kingLoc;
+                for (int i = 0; i < dist; i++) {
+                    trapLoc = trapLoc.add(dir);
+                }
+
+                if (rc.canPlaceCatTrap(trapLoc)) {
+                    rc.placeCatTrap(trapLoc);
+                    placed++;
+                    System.out.println("TRAP:" + rc.getRoundNum() + ":Placed cat trap at " + trapLoc);
+                    break;
+                }
+            }
+        }
+
+        defensiveTrapsPlaced = true;
+        System.out.println("DEFENSE:" + rc.getRoundNum() + ":Placed " + placed + " cat traps total");
     }
 
     /**

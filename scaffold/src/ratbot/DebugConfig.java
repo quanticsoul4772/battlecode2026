@@ -67,7 +67,7 @@ public class DebugConfig {
     /**
      * Enable combat debugging.
      */
-    public static final boolean DEBUG_COMBAT = false;
+    public static final boolean DEBUG_COMBAT = true;
 
     /**
      * Enable emergency mode debugging.
