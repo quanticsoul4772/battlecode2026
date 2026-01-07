@@ -215,45 +215,48 @@ public class RobotPlayer {
                     System.out.println("ATTACK_BLOCKED:" + round + ":" + id + ":dist=" + dist + " actionReady=" + actionReady + " facingKing=" + facingKing);
                 }
 
-                // Chase - When close (dist<=10), try direct approach (BFS too expensive)
+                // FINAL APPROACH: When close (dist<=10), be aggressive to reach adjacent (dist<=2)
                 if (dist <= 10) {
-                    System.out.println("ASSAULT:" + round + ":" + id + ":dist=" + dist + " closing");
+                    System.out.println("FINAL_APPROACH:" + round + ":" + id + ":dist=" + dist + " need<=2");
 
-                    // Try direct move
+                    // Priority 1: Move DIRECTLY toward king
                     if (rc.canMove(toKing)) {
                         rc.move(toKing);
-                        System.out.println("DIRECT:" + round + ":" + id + ":moved " + toKing);
+                        System.out.println("ADVANCE:" + round + ":" + id + ":→" + toKing);
                         return;
                     }
 
-                    // Try perpendicular (flanking around obstacles)
-                    Direction[] flank = {rotateLeft(toKing), rotateRight(toKing)};
-                    for (Direction d : flank) {
+                    // Priority 2: Try all 8 directions, pick one that REDUCES distance
+                    Direction bestDir = Direction.CENTER;
+                    int bestDist = dist;
+
+                    for (Direction d : directions) {
                         if (rc.canMove(d)) {
-                            rc.move(d);
-                            System.out.println("FLANK:" + round + ":" + id + ":moved " + d);
-                            return;
+                            MapLocation next = me.add(d);
+                            int nextDist = next.distanceSquaredTo(actualKing);
+                            if (nextDist < bestDist) {
+                                bestDist = nextDist;
+                                bestDir = d;
+                            }
                         }
                     }
 
-                    // Try backing up one step to get better angle
-                    Direction back = opposite(toKing);
-                    if (rc.canMove(back)) {
-                        rc.move(back);
-                        System.out.println("REPOSITION:" + round + ":" + id + ":backing up to " + back);
+                    if (bestDir != Direction.CENTER) {
+                        rc.move(bestDir);
+                        System.out.println("APPROACH:" + round + ":" + id + ":→" + bestDir + " dist " + dist + "→" + bestDist);
                         return;
                     }
 
-                    // Try ANY direction to unstick
+                    // Priority 3: Can't get closer, try moving to unstick
                     for (Direction d : directions) {
                         if (rc.canMove(d)) {
                             rc.move(d);
-                            System.out.println("UNSTICK:" + round + ":" + id + ":moved " + d);
+                            System.out.println("CIRCLE:" + round + ":" + id + ":→" + d + " (circling king)");
                             return;
                         }
                     }
 
-                    System.out.println("STUCK:" + round + ":" + id + ":completely blocked");
+                    System.out.println("BLOCKED:" + round + ":" + id + ":no moves");
                     return;
                 }
 
