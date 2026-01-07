@@ -1,0 +1,46 @@
+package ratbot2;
+
+import battlecode.common.*;
+
+/**
+ * RobotPlayer - Entry point for ratbot2
+ *
+ * Role Assignment:
+ * - 70% combat rats (IDs % 10 in 0-6) - Attack cats
+ * - 30% economy rats (IDs % 10 in 7-9) - Collect cheese
+ */
+public class RobotPlayer {
+    private static int myRole = -1;  // 0=combat, 1=economy
+
+    public static void run(RobotController rc) throws GameActionException {
+        // Assign role at spawn (based on ID)
+        if (myRole == -1) {
+            // 70% combat (IDs ending in 0-6)
+            // 30% economy (IDs ending in 7-9)
+            myRole = (rc.getID() % 10) <= 6 ? 0 : 1;
+
+            String roleStr = (myRole == 0) ? "COMBAT" : "ECONOMY";
+            System.out.println("SPAWN:" + rc.getRoundNum() + ":" + rc.getID() + ":role=" + roleStr);
+        }
+
+        while (true) {
+            try {
+                if (rc.getType() == UnitType.RAT_KING) {
+                    RatKing.run(rc);
+                } else if (myRole == 0) {
+                    CombatRat.run(rc);  // 70% - Attack cats
+                } else {
+                    EconomyRat.run(rc);  // 30% - Collect cheese
+                }
+            } catch (GameActionException e) {
+                System.out.println("GameActionException");
+                e.printStackTrace();
+            } catch (Exception e) {
+                System.out.println("Exception");
+                e.printStackTrace();
+            } finally {
+                Clock.yield();
+            }
+        }
+    }
+}
