@@ -170,7 +170,7 @@ public class RobotPlayer {
         RobotInfo[] enemies = rc.senseNearbyRobots(-1, rc.getTeam().opponent());
         for (RobotInfo enemy : enemies) {
             if (enemy.getType() == UnitType.RAT_KING) {
-                // FOUND ENEMY KING IN VISION!
+                // FOUND ENEMY KING!
                 MapLocation actualKing = enemy.getLocation();
                 int dist = me.distanceSquaredTo(actualKing);
 
@@ -179,34 +179,45 @@ public class RobotPlayer {
                 // Attack if adjacent
                 if (dist <= 2 && rc.canAttack(actualKing)) {
                     rc.attack(actualKing);
-                    System.out.println("ATTACK_KING:" + round + ":" + id + ":DAMAGE=10 HP_LEFT=" + (enemy.getHealth() - 10));
+                    System.out.println("ATTACK_KING:" + round + ":" + id + ":DAMAGE=10 HP=" + (enemy.getHealth() - 10));
                     return;
                 }
 
-                // Chase the king
-                System.out.println("CHASE_KING:" + round + ":" + id + ":pursuing to " + actualKing);
+                // Chase
+                System.out.println("CHASE:" + round + ":" + id + ":pursuing " + actualKing);
                 simpleMove(rc, actualKing);
                 return;
             }
         }
 
-        // Can't see enemy king - use calculated position from shared array
-        int enemyKingX = rc.readSharedArray(2);
-        int enemyKingY = rc.readSharedArray(3);
+        // Can't see king - use last known position from shared array
+        int lastX = rc.readSharedArray(2);
+        int lastY = rc.readSharedArray(3);
 
-        if (enemyKingX != 0) {
-            MapLocation calculatedKing = new MapLocation(enemyKingX, enemyKingY);
-            int dist = me.distanceSquaredTo(calculatedKing);
+        if (lastX != 0) {
+            MapLocation lastKnown = new MapLocation(lastX, lastY);
+            int dist = me.distanceSquaredTo(lastKnown);
 
-            System.out.println("RUSH_CALC:" + round + ":" + id + ":target=" + calculatedKing + " dist=" + dist);
+            // If we're CLOSE to last known position but can't see king, SEARCH aggressively
+            if (dist <= 50) {
+                System.out.println("LOST_KING:" + round + ":" + id + ":near " + lastKnown + " dist=" + dist + " SEARCHING AREA");
+                // King moved - search in spiral around last known position
+                // Use round and ID for deterministic but varied search pattern
+                int searchDir = (id + round) % 8;
+                Direction searchDirection = directions[searchDir];
+                MapLocation searchTarget = lastKnown.add(searchDirection).add(searchDirection).add(searchDirection);
+                System.out.println("SEARCH_PATTERN:" + round + ":" + id + ":searching " + searchDirection + " from " + lastKnown);
+                simpleMove(rc, searchTarget);
+                return;
+            }
 
-            // Navigate to calculated position
-            simpleMove(rc, calculatedKing);
+            System.out.println("RUSH:" + round + ":" + id + ":to last known " + lastKnown + " dist=" + dist);
+            simpleMove(rc, lastKnown);
             return;
         }
 
-        // No target - search center
-        System.out.println("SEARCH_CENTER:" + round + ":" + id);
+        // No position known - search center
+        System.out.println("SEARCH:" + round + ":" + id);
         MapLocation center = new MapLocation(rc.getMapWidth() / 2, rc.getMapHeight() / 2);
         simpleMove(rc, center);
     }
