@@ -10,9 +10,18 @@ import ratbot2.utils.*;
  * Sustain king's 3 cheese/round consumption.
  */
 public class EconomyRat {
-    private static final int DELIVERY_THRESHOLD = 15;  // Deliver when carrying this much
+    private static final int DELIVERY_THRESHOLD = 10;  // Deliver when carrying this much (lower = more frequent)
+
+    // Passability map (each rat builds its own)
+    private static boolean[][] localPassable = new boolean[60][60];
+    private static boolean mapInitialized = false;
 
     public static void run(RobotController rc) throws GameActionException {
+        // Build passability map on first run
+        if (!mapInitialized) {
+            scanPassability(rc);
+            mapInitialized = true;
+        }
         if (rc.getRoundNum() % 50 == 0) {
             System.out.println("ECON_RAT:" + rc.getRoundNum() + ":" + rc.getID() + ":running, cheese=" + rc.getRawCheese());
         }
@@ -59,9 +68,23 @@ public class EconomyRat {
 
     /**
      * Collect cheese from mines.
+     * STAY NEAR KING - don't wander far.
      */
     private static void collectCheese(RobotController rc) throws GameActionException {
         MapLocation me = rc.getLocation();
+
+        // Get king position
+        int kingX = rc.readSharedArray(Communications.SLOT_KING_X);
+        int kingY = rc.readSharedArray(Communications.SLOT_KING_Y);
+        MapLocation kingLoc = new MapLocation(kingX, kingY);
+
+        int distToKing = me.distanceSquaredTo(kingLoc);
+
+        // If too far from king (>15 tiles), return immediately
+        if (distToKing > 225) {
+            Movement.moveToward(rc, kingLoc);
+            return;
+        }
 
         // Find nearest cheese
         MapLocation[] nearby = rc.getAllLocationsWithinRadiusSquared(me, 20);
@@ -73,7 +96,9 @@ public class EconomyRat {
                 MapInfo info = rc.senseMapInfo(loc);
                 if (info.getCheeseAmount() > 0) {
                     int dist = me.distanceSquaredTo(loc);
-                    if (dist < nearestDist) {
+                    // Only collect if cheese is closer to king than we are (don't wander away)
+                    int cheeseDist = loc.distanceSquaredTo(kingLoc);
+                    if (dist < nearestDist && cheeseDist <= distToKing + 50) {
                         nearestDist = dist;
                         nearestCheese = loc;
                     }
@@ -90,9 +115,10 @@ public class EconomyRat {
                 Movement.moveToward(rc, nearestCheese);
             }
         } else {
-            // No cheese visible - explore toward center
-            MapLocation center = new MapLocation(rc.getMapWidth() / 2, rc.getMapHeight() / 2);
-            Movement.moveToward(rc, center);
+            // No cheese visible - orbit around king (don't go to center)
+            Direction toKing = me.directionTo(kingLoc);
+            Direction orbit = DirectionUtil.rotateLeft(toKing);
+            Movement.moveToward(rc, me.add(orbit).add(orbit));
         }
     }
 
@@ -122,11 +148,31 @@ public class EconomyRat {
             rc.transferCheese(kingLoc, amount);
             System.out.println("DELIVER:" + rc.getRoundNum() + ":" + rc.getID() + ":amount=" + amount);
         } else {
-            // Move toward king
-            if (rc.getRoundNum() % 20 == 0 && distance > 9) {
-                System.out.println("STUCK:" + rc.getRoundNum() + ":" + rc.getID() + ":dist=" + distance + " pos=" + rc.getLocation());
+            // Use advanced pathfinding to navigate to king
+            Movement.moveTowardAdvanced(rc, kingLoc, localPassable);
+        }
+    }
+
+    /**
+     * Scan visible area and build passability map.
+     */
+    private static void scanPassability(RobotController rc) throws GameActionException {
+        // Initialize all as passable (optimistic)
+        for (int x = 0; x < 60; x++) {
+            for (int y = 0; y < 60; y++) {
+                localPassable[x][y] = true;
             }
-            Movement.moveToward(rc, kingLoc);
+        }
+
+        // Mark known impassable
+        MapLocation me = rc.getLocation();
+        MapLocation[] visible = rc.getAllLocationsWithinRadiusSquared(me, 20);
+
+        for (MapLocation loc : visible) {
+            if (rc.canSenseLocation(loc)) {
+                MapInfo info = rc.senseMapInfo(loc);
+                localPassable[loc.x][loc.y] = info.isPassable();
+            }
         }
     }
 }

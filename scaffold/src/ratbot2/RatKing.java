@@ -72,13 +72,22 @@ public class RatKing {
     private static boolean ratTrapsPlaced = false;
     private static int ratTrapCount = 0;
 
+    private static int lastSpawnRound = 0;
+
     /**
      * Spawn baby rat at distance=2 (outside 3×3 king footprint).
-     * MINIMAL: 5 economy rats for careful cheese collection.
+     * ONE AT A TIME: Spawn with 100 round delays to avoid congestion.
      */
     private static void spawnBabyRat(RobotController rc) throws GameActionException {
-        // Spawn exactly 5 economy rats
+        int round = rc.getRoundNum();
+
+        // Spawn 1 rat every 100 rounds (max 5 total)
         if (spawnCount >= 5) {
+            return;
+        }
+
+        // Big delay between spawns (avoid congestion)
+        if (round - lastSpawnRound < 100 && spawnCount > 0) {
             return;
         }
 
@@ -97,7 +106,8 @@ public class RatKing {
             if (rc.canBuildRat(spawnLoc)) {
                 rc.buildRat(spawnLoc);
                 spawnCount++;
-                System.out.println("SPAWN:" + rc.getRoundNum() + ":collector #" + spawnCount);
+                lastSpawnRound = round;
+                System.out.println("SPAWN:" + round + ":collector #" + spawnCount);
                 return;
             }
         }
