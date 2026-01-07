@@ -24,6 +24,9 @@ public class Movement {
                 return;
             }
             // Blocked forward - try alternatives below
+            if (rc.getRoundNum() % 50 == 0) {
+                System.out.println("MOVE_BLOCKED:" + rc.getRoundNum() + ":" + rc.getID() + ":facing=" + facing + " blocked forward");
+            }
         }
 
         // Need to turn toward target
@@ -38,9 +41,10 @@ public class Movement {
             return;
         }
 
-        // Blocked - try alternative directions
-        Direction[] alternatives = DirectionUtil.orderedDirections(toTarget);
+        // Blocked - try alternative directions more aggressively
+        Direction[] alternatives = DirectionUtil.ALL_DIRECTIONS;
         for (Direction dir : alternatives) {
+            // Try moving in any available direction
             if (rc.canMove(dir)) {
                 if (rc.getDirection() == dir) {
                     if (rc.canMoveForward()) {
@@ -54,6 +58,18 @@ public class Movement {
             }
         }
 
-        // Completely stuck - do nothing this turn
+        // Completely stuck - try random direction
+        for (int i = 0; i < 8; i++) {
+            Direction random = DirectionUtil.ALL_DIRECTIONS[(rc.getID() + rc.getRoundNum() + i) % 8];
+            if (rc.canMove(random)) {
+                if (rc.getDirection() == random && rc.canMoveForward()) {
+                    rc.moveForward();
+                    return;
+                } else if (rc.canTurn()) {
+                    rc.turn(random);
+                    return;
+                }
+            }
+        }
     }
 }

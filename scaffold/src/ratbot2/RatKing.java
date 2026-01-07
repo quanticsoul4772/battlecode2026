@@ -60,15 +60,22 @@ public class RatKing {
         }
     }
 
+    private static int spawnCount = 0;
+
     /**
      * Spawn baby rat at distance=2 (outside 3×3 king footprint).
-     * AGGRESSIVE: Spawn every turn to build army.
+     * MINIMAL: Very limited spawning to avoid congestion and cheese drain.
      */
     private static void spawnBabyRat(RobotController rc) throws GameActionException {
+        // NO SPAWNING - king alone with traps is more effective
+        return;
+    }
+
+    private static void spawnBabyRatOLD(RobotController rc) throws GameActionException {
         int cost = rc.getCurrentRatCost();
         int cheese = rc.getGlobalCheese();
 
-        // Only check: Can afford + small reserve
+        // Can afford + small reserve
         if (cheese < cost + 50) {
             return;
         }
@@ -79,6 +86,7 @@ public class RatKing {
 
             if (rc.canBuildRat(spawnLoc)) {
                 rc.buildRat(spawnLoc);
+                spawnCount++;
                 return;
             }
         }
@@ -158,12 +166,6 @@ public class RatKing {
                 }
 
             boolean canPlace = rc.canPlaceCatTrap(trapLoc);
-            if (rc.getRoundNum() <= 10) {
-                boolean actionReady = rc.isActionReady();
-                boolean onMap = rc.onTheMap(trapLoc);
-                boolean occupied = rc.isLocationOccupied(trapLoc);
-                System.out.println("TRAP_TRY:" + trapLoc + " canPlace=" + canPlace + " actionReady=" + actionReady + " onMap=" + onMap + " occupied=" + occupied);
-            }
 
                 if (canPlace) {
                     rc.placeCatTrap(trapLoc);

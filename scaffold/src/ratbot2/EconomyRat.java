@@ -13,6 +13,10 @@ public class EconomyRat {
     private static final int DELIVERY_THRESHOLD = 15;  // Deliver when carrying this much
 
     public static void run(RobotController rc) throws GameActionException {
+        if (rc.getRoundNum() % 50 == 0) {
+            System.out.println("ECON_RAT:" + rc.getRoundNum() + ":" + rc.getID() + ":running, cheese=" + rc.getRawCheese());
+        }
+
         // EVASIVE: Check if cat nearby - flee if too close
         RobotInfo[] nearby = rc.senseNearbyRobots(20, Team.NEUTRAL);
         for (RobotInfo robot : nearby) {
@@ -107,6 +111,11 @@ public class EconomyRat {
         MapLocation kingLoc = new MapLocation(kingX, kingY);
         int distance = rc.getLocation().distanceSquaredTo(kingLoc);
 
+        // Debug delivery attempts
+        if (rc.getRoundNum() % 50 == 0) {
+            System.out.println("DELIVERY_ATTEMPT:" + rc.getRoundNum() + ":" + rc.getID() + ":dist=" + distance + " cheese=" + rc.getRawCheese());
+        }
+
         // Can transfer? (distance ≤ 9 = 3 tiles)
         if (distance <= 9 && rc.canTransferCheese(kingLoc, rc.getRawCheese())) {
             int amount = rc.getRawCheese();
@@ -114,8 +123,10 @@ public class EconomyRat {
             System.out.println("DELIVER:" + rc.getRoundNum() + ":" + rc.getID() + ":amount=" + amount);
         } else {
             // Move toward king
+            if (rc.getRoundNum() % 20 == 0 && distance > 9) {
+                System.out.println("STUCK:" + rc.getRoundNum() + ":" + rc.getID() + ":dist=" + distance + " pos=" + rc.getLocation());
+            }
             Movement.moveToward(rc, kingLoc);
-            Debug.status(rc, "→KING");
         }
     }
 }
