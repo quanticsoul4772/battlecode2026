@@ -136,44 +136,46 @@ public class RobotPlayer {
             return;
         }
 
-        // Attack enemies
+        // Attack enemies (baby rats AND king!)
         for (RobotInfo enemy : enemies) {
-            if (enemy.getType() == UnitType.BABY_RAT) {
-                if (rc.canAttack(enemy.getLocation())) {
-                    // Cheese-enhanced if conditions met
-                    int globalCheese = rc.getGlobalCheese();
-                    if (globalCheese > 500 && enemy.getHealth() < 30 && rc.getRawCheese() >= 8) {
-                        rc.attack(enemy.getLocation(), 8);
-                    } else {
-                        rc.attack(enemy.getLocation());
-                    }
-                    return;
+            MapLocation enemyLoc = enemy.getLocation();
+
+            // Attack if we can
+            if (rc.canAttack(enemyLoc)) {
+                // Cheese-enhanced if conditions met
+                int globalCheese = rc.getGlobalCheese();
+                if (globalCheese > 500 && enemy.getHealth() < 100 && rc.getRawCheese() >= 8) {
+                    rc.attack(enemyLoc, 8);
+                } else {
+                    rc.attack(enemyLoc);
                 }
-                // Chase
-                move(rc, enemy.getLocation());
+                return;
+            }
+
+            // If it's a king and we're close, try attacking individual tiles (3x3)
+            if (enemy.getType() == UnitType.RAT_KING && me.distanceSquaredTo(enemyLoc) <= 10) {
+                // Try each king tile
+                for (int dx = -1; dx <= 1; dx++) {
+                    for (int dy = -1; dy <= 1; dy++) {
+                        MapLocation tile = new MapLocation(enemyLoc.x + dx, enemyLoc.y + dy);
+                        if (rc.canAttack(tile)) {
+                            rc.attack(tile);
+                            return;
+                        }
+                    }
+                }
+            }
+
+            // Chase enemy (baby rat or king)
+            if (me.distanceSquaredTo(enemyLoc) <= 100) {
+                move(rc, enemyLoc);
                 return;
             }
         }
 
-        // No enemies - spread out and search (don't all cluster at enemy king!)
-        int myNum = rc.getID() % 8; // Attackers 0-7
-        int mapW = rc.getMapWidth();
-        int mapH = rc.getMapHeight();
-
-        // Assign search zones to avoid clustering
-        MapLocation searchTarget;
-        switch (myNum) {
-            case 0: searchTarget = new MapLocation(mapW / 4, mapH / 4); break; // NW
-            case 1: searchTarget = new MapLocation(3 * mapW / 4, mapH / 4); break; // NE
-            case 2: searchTarget = new MapLocation(3 * mapW / 4, 3 * mapH / 4); break; // SE
-            case 3: searchTarget = new MapLocation(mapW / 4, 3 * mapH / 4); break; // SW
-            case 4: searchTarget = new MapLocation(mapW / 2, mapH / 4); break; // N
-            case 5: searchTarget = new MapLocation(3 * mapW / 4, mapH / 2); break; // E
-            case 6: searchTarget = new MapLocation(mapW / 2, 3 * mapH / 4); break; // S
-            default: searchTarget = new MapLocation(mapW / 4, mapH / 2); break; // W
-        }
-
-        move(rc, searchTarget);
+        // No enemies visible - RUSH ENEMY KING (like enemy does to us!)
+        MapLocation enemyKingLoc = new MapLocation(rc.readSharedArray(2), rc.readSharedArray(3));
+        move(rc, enemyKingLoc);
     }
 
     private static void runCollector(RobotController rc) throws GameActionException {
