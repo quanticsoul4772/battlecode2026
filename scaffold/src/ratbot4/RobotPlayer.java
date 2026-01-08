@@ -291,6 +291,8 @@ public class RobotPlayer {
     // Attackers rush toward enemy king and attack any enemy rats they encounter
     // Goal: Kill enemy rats to reduce their economy and trigger backstab mode
 
+    private static int roundsSinceLastAttack = 0;
+
     private static void attackEnemyKing(RobotController rc) throws GameActionException {
         int round = rc.getRoundNum();
         int id = rc.getID();
@@ -298,12 +300,21 @@ public class RobotPlayer {
 
         System.out.println("ATTACK:" + round + ":" + id + ":executing");
 
+        // SUICIDE IF IDLE TOO LONG
+        // If no attack for 100 rounds, disintegrate to free population slot
+        roundsSinceLastAttack++;
+        if (roundsSinceLastAttack > 100) {
+            System.out.println("SUICIDE:" + round + ":" + id + ":idle " + roundsSinceLastAttack + " rounds");
+            rc.disintegrate();
+            return;
+        }
+
         // SCAN FOR ENEMIES
         // -1 radius means entire vision cone (90° in facing direction)
         RobotInfo[] enemies = rc.senseNearbyRobots(-1, rc.getTeam().opponent());
 
         if (round % 10 == 0) {
-            System.out.println("ENEMIES:" + round + ":" + id + ":count=" + enemies.length);
+            System.out.println("ENEMIES:" + round + ":" + id + ":count=" + enemies.length + " idle=" + roundsSinceLastAttack);
         }
 
         // ==================== RATNAPPING ====================
@@ -418,10 +429,20 @@ public class RobotPlayer {
             }
         }
 
-        // NO ENEMIES VISIBLE: RUSH ENEMY KING POSITION
-        // Use calculated position from shared array (set on round 1)
+        // NO ENEMIES VISIBLE: SEARCH FOR KING (don't all cluster at same spot!)
+        // Spread out search pattern - each rat searches different area
         MapLocation enemyKing = new MapLocation(rc.readSharedArray(2), rc.readSharedArray(3));
-        simpleMove(rc, enemyKing);
+
+        // Expanding spiral search: different direction per rat
+        int searchDir = (id + round / 10) % 8;
+        Direction searchDirection = directions[searchDir];
+        MapLocation searchTarget = enemyKing.add(searchDirection).add(searchDirection).add(searchDirection);
+
+        if (round % 50 == 0) {
+            System.out.println("SEARCH:" + round + ":" + id + ":dir=" + searchDirection + " target=" + searchTarget);
+        }
+
+        simpleMove(rc, searchTarget);
     }
 
     // ================================================================
