@@ -115,16 +115,20 @@ Attack enemy rats to reduce their economy.
 ```
 Initial cheese: 2,500
 Spawn cost (12 rats): ~200
-King consumption (50 rounds): 150
-Cheese-enhanced attacks: Conditional (see combat section)
-Reserve needed: 500 minimum
+Dirt walls (9 tiles): ~90 cheese (rounds 15-20)
+King consumption (75 rounds): 225 cheese
+2nd King formation: 50 cheese + 7 rats (round 75)
+Cheese-enhanced attacks: ~100 cheese (conditional use)
+Total by round 75: ~665 cheese spent
+Reserve needed: 1,000 minimum
 ```
 
 **Rationale**:
 - 12 rats affordable while keeping king alive
+- Dirt walls provide early defense
+- 2nd king creates redundancy (NO ONE ELSE USING THIS!)
 - Clear role transition via shared array
-- Sustainable cheese budget
-- Can use enhanced attacks when we have surplus
+- Sustainable cheese budget with 1,000 reserve
 
 ### Role Definitions:
 
@@ -368,6 +372,10 @@ if (rc.canRemoveCatTrap(nextLoc)) {
 - 28: Danger signal (1 = enemies near king)
 - 29: King HP (for emergency delivery detection)
 - 30-39: Trap locations (up to 5 traps, 2 slots each)
+- **40-59: Cheese mine locations** (10 mines, 2 slots each X,Y)
+- **60-61: 2nd king position** (if formed)
+- **62: 2nd king HP**
+- **63: Kill count** (combat statistics)
 
 **King responsibilities**:
 - Write own position (slots 0-1)
@@ -377,6 +385,9 @@ if (rc.canRemoveCatTrap(nextLoc)) {
 - Set danger signal (slot 28) if enemies within 20 tiles
 - Write trap locations (slots 30-39) when placed
 - Write role assignments (slots 4-23) during spawn
+- **NEW: Build dirt walls** (rounds 15-20) - 3x3 perimeter around king
+- **NEW: Track cheese mines** (slots 40-59) - coordinate collection
+- **NEW: Form 2nd king** (round 75+) - if 10+ rats alive and cheese > 1000
 
 ## Technical Specifications
 
