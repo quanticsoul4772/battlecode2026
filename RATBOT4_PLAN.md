@@ -272,7 +272,7 @@ Move toward it;
 Pick up if adjacent;
 ```
 
-**Collectors fight and clear paths** - no fleeing, aggressive replacement
+**Collectors fight back and clear traps** - aggressive replacement when they die
 
 ### Combat Behavior (CRITICAL - Must Match Enemy):
 
