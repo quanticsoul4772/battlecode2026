@@ -90,68 +90,78 @@ Attack enemy rats to reduce their economy.
 
 ### Population Strategy:
 
-**EARLY RUSH DEFENSE** (Critical - enemy kills us by round 30!):
+**REVISED RUSH DEFENSE** (Based on economic constraints):
 
-**Phase 1 (Rounds 1-15): MASS SPAWN FOR DEFENSE**
-- Spawn as fast as possible: 15 rats
+**Phase 1 (Rounds 1-12): DEFENSIVE SPAWN**
+- Spawn 12 rats as fast as possible (not 15 - can't afford it)
+- Cost: ~200 cheese total
 - ALL rats are attackers initially (pure defense)
-- Use cheese-enhanced attacks (8 cheese per attack = 13 damage)
-- Goal: Survive enemy rush, kill their attackers
+- Spawn order: [0,1,2,3,4,5,6,7,8,9,10,11]
 
-**Phase 2 (Rounds 16-30): ECONOMY TRANSITION**
-- Convert 5 attackers to collectors
-- Keep 10 attackers for ongoing defense
-- Start delivering cheese to sustain king
+**Phase 2 (Round 13+): ROLE ASSIGNMENT**
+- Rats 0-7: Remain attackers (8 attackers)
+- Rats 8-11: Become collectors (4 collectors)
+- King writes role assignments to shared array during spawn
+- Rats read role from shared array slot (4 + spawnNumber)
 
-**Phase 3 (Rounds 31+): SUSTAINED OPERATION**
-- 10 attackers (defend + hunt)
-- 5 collectors (economy)
-- Replacement: 1 per 50 rounds
+**Phase 3 (Round 30+): REPLACEMENT**
+- Replace losses: 1 rat every 50 rounds
+- Replace same role as what died (track by visible count)
+- Cap at 20 total spawned
+
+**Economic Model**:
+```
+Initial cheese: 2,500
+Spawn cost (12 rats): ~200
+King consumption (50 rounds): 150
+Cheese-enhanced attacks: Conditional (see combat section)
+Reserve needed: 500 minimum
+```
 
 **Rationale**:
-- Enemy rushes with 15+ rats by round 15
-- We need equal numbers to defend
-- Cheese-enhanced attacks to match their damage
-- Transition to economy AFTER surviving rush
+- 12 rats affordable while keeping king alive
+- Clear role transition via shared array
+- Sustainable cheese budget
+- Can use enhanced attacks when we have surplus
 
 ### Role Definitions:
 
-**PHASE 1 (Rounds 1-30): ALL ATTACKERS**
+**Role Definitions**:
 
-All 15 rats are attackers during enemy rush:
-- **Job**: Kill enemy attackers, protect king
+**ATTACKER** (8 rats - spawn numbers 0-7):
+- **Job**: Kill enemy rats, defend our territory
 - **Behavior**:
-  1. Attack any enemy rat in vision (cheese-enhanced!)
-  2. Guard area around our king (within 15 tiles)
-  3. Chase enemies toward our king
-- **Combat**: Use 8 cheese per attack (13 damage)
-- **Goal**: Survive rush, kill enemy attackers
+  1. Attack enemy rats in vision (priority: lowest HP first)
+  2. Guard near our king (within 20 tiles)
+  3. Hunt enemies if none near king
+- **Combat**:
+  - Cheese-enhanced IF: globalCheese > 500 AND enemy HP < 30
+  - Otherwise: base attack (10 damage)
+- **FLEE**: Never (attackers fight until death)
 
-**PHASE 2 (Rounds 31+): ROLE SPLIT**
-
-After surviving rush, assign roles:
-
-**ATTACKER** (10 rats):
-- **Job**: Continuous enemy harassment
+**COLLECTOR** (4 rats - spawn numbers 8-11):
+- **Job**: Feed king, prevent starvation
 - **Behavior**:
-  1. Attack enemy rats (cheese-enhanced)
-  2. Hunt in enemy territory
-  3. Protect our collectors
-- **Combat**: 8 cheese per attack
-- **Range**: Anywhere
+  1. **EMERGENCY DELIVERY**: If king HP < 100 → deliver immediately (ignore danger)
+  2. **FLEE**: If enemy within 15 tiles AND king HP > 100 → run to king
+  3. **DELIVER**: If carrying >= 10 cheese AND safe → deliver
+  4. **COLLECT**: Find nearest cheese
+- **Combat**: FLEE only (never fight)
+- **HP awareness**: Flee if HP < 50
 
-**COLLECTOR** (5 rats):
-- **Job**: Feed king, survive
-- **Behavior**:
-  1. FLEE if: enemy within 15 tiles OR HP < 50
-  2. Deliver when: carrying >= 10 cheese AND safe
-  3. Collect: nearest cheese
-- **Combat**: FLEE, don't fight (preserve economy)
-- **Range**: Anywhere with cheese
+**Role Assignment System**:
+```java
+// King assigns during spawn
+rc.writeSharedArray(4 + spawnCount, roleType); // 0=ATK, 1=COL
 
-**Role assignment**:
-- First 10 spawned = attackers (keep fighting)
-- Last 5 spawned = collectors (switch to economy)
+// Rats read on spawn
+myRole = rc.readSharedArray(4 + mySpawnNumber);
+```
+
+**Spawn order produces**:
+- Rats 0-7: Attackers (spawn rounds 1-8)
+- Rats 8-11: Collectors (spawn rounds 9-12)
+- Clear, deterministic, no contradictions
 
 ### Pathfinding Strategy:
 
@@ -175,79 +185,122 @@ After surviving rush, assign roles:
 - Focus fire: attack wounded enemies first
 - Stay near our king (within 20 tiles)
 
-**COLLECTORS in rounds 31+**:
+**COLLECTOR BEHAVIOR** (Critical - prevent late game deaths):
 
-**FLEE conditions**:
-- Enemy within 15 tiles
-- HP < 50 (half health)
-- Already fleeing (don't stop mid-flee)
-
-**FLEE behavior**:
+**Priority 1: EMERGENCY KING DELIVERY**
 ```java
-// Check for enemies
-RobotInfo[] enemies = rc.senseNearbyRobots(225, opponent); // 15 tiles
-RobotInfo closest = find closest enemy;
-
-if (closest != null && distance < 225) {
-    // FLEE toward our king (safest direction)
+int kingHP = rc.readSharedArray(9); // King writes HP to slot 9
+if (kingHP < 100 && rc.getRawCheese() > 0) {
+    // OVERRIDE FLEE - King dying!
     MapLocation kingLoc = read from shared array;
-    move toward king; // Run to safety!
-    return; // Don't collect, don't deliver - just RUN
-}
-
-if (rc.getHealth() < 50) {
-    // Low HP - flee to king
-    move toward king;
+    if (distToKing <= 9 && rc.canTransferCheese(kingLoc, cheese)) {
+        rc.transferCheese(kingLoc, cheese);
+        return;
+    }
+    // Move toward king (ignore enemies)
+    moveWithBug2(kingLoc);
     return;
 }
 ```
 
-**Never fight as collector** - only flee and survive
+**Priority 2: FLEE FROM DANGER**
+```java
+RobotInfo[] enemies = rc.senseNearbyRobots(225, opponent); // 15 tiles
+if (enemies.length > 0 || rc.getHealth() < 50) {
+    MapLocation kingLoc = read from shared array;
+
+    // Check for friendly traps on path
+    MapLocation[] trapLocs = read trap locations from shared array (slots 10-19);
+
+    // Move toward king, avoiding traps
+    Direction toKing = me.directionTo(kingLoc);
+    // Check if next tile is a trap
+    if (!isTrapTile(me.add(toKing), trapLocs)) {
+        if (rc.canMove(toKing)) {
+            rc.move(toKing);
+            return;
+        }
+    }
+
+    // Blocked or trap ahead - use Bug2 to navigate safely
+    moveWithBug2(kingLoc);
+    return;
+}
+```
+
+**Priority 3: Normal Collection**
+- Deliver if carrying >= 10 cheese
+- Collect nearest cheese
+- Use Bug2 when stuck > 3 rounds
+
+**Never fight** - collectors only flee and survive
 
 ### Combat Behavior (CRITICAL - Must Match Enemy):
 
 **Cheese-Enhanced Attacks**:
 - Formula: `damage = 10 + ceil(log₂(cheese))`
-- 8 cheese = 13 damage (8 hits to kill vs 10)
-- 16 cheese = 14 damage (8 hits to kill)
-- 32 cheese = 15 damage (7 hits to kill)
+- 8 cheese = 13 damage (8 hits vs 10)
+- 16 cheese = 14 damage (8 hits)
+- 32 cheese = 15 damage (7 hits)
 
-**Attack strategy**:
+**Attack Strategy (CONDITIONAL - preserve cheese)**:
 ```java
-// ALWAYS use cheese-enhanced attacks
+// Check if we should enhance
+boolean shouldEnhance = false;
+if (rc.getGlobalCheese() > 500) { // Surplus available
+    if (enemy.getHealth() < 30) { // Killing blow
+        shouldEnhance = true;
+    } else if (distToOurKing < 100) { // Defending king area
+        shouldEnhance = true;
+    }
+}
+
+// Attack with or without cheese
 if (rc.canAttack(enemyLoc)) {
-    int cheeseToSpend = Math.min(8, rc.getRawCheese()); // Spend 8 if available
-    if (cheeseToSpend > 0) {
-        rc.attack(enemyLoc, cheeseToSpend); // 13 damage
+    // Turn to face enemy first (required for vision cone!)
+    Direction toEnemy = me.directionTo(enemyLoc);
+    if (rc.getDirection() != toEnemy && rc.canTurn()) {
+        rc.turn(toEnemy);
+        return; // Attack next round
+    }
+
+    if (shouldEnhance && rc.getRawCheese() >= 8) {
+        rc.attack(enemyLoc, 8); // 13 damage
     } else {
-        rc.attack(enemyLoc); // 10 damage fallback
+        rc.attack(enemyLoc); // 10 damage
     }
 }
 ```
 
-**Target priority**:
-1. Enemy rats attacking our king (highest threat)
-2. Enemy rats near our collectors (protect economy)
-3. Enemy rats anywhere (reduce their numbers)
-4. Enemy king (only if alone and vulnerable)
+**Target Priority**:
+1. Wounded enemies (HP < 50) - finish them off
+2. Enemies near our king (dist < 100) - defend king
+3. Enemies near our collectors - protect economy
+4. Any enemy rats - reduce their numbers
 
-**Coordinate attacks**: When 2+ rats attack same target, focus fire to kill faster
+**Focus Fire**: Attack lowest HP enemy when multiple visible
 
 ### Communication Protocol:
 
 **Shared array slots**:
 - 0-1: Our king position (X, Y)
 - 2-3: Enemy king position (X, Y)
-- 4: Enemy position timestamp
-- 5-6: Last enemy rat sighting (X, Y)
-- 7: Enemy rat timestamp
-- 8: Danger signal (1 = enemies near our king)
+- 4-23: Role assignments (20 rats, 0=ATK 1=COL)
+- 24: Enemy position timestamp (round % 1000)
+- 25-26: Last enemy rat sighting (X, Y)
+- 27: Enemy rat timestamp
+- 28: Danger signal (1 = enemies near king)
+- 29: King HP (for emergency delivery detection)
+- 30-39: Trap locations (up to 5 traps, 2 slots each)
 
 **King responsibilities**:
-- Write own position
-- Calculate enemy king position (symmetry)
-- Scan for enemies, write positions
-- Set danger signal if enemies within 20 tiles
+- Write own position (slots 0-1)
+- Calculate enemy king position (slots 2-3, try rotation first, verify on sight)
+- Write own HP (slot 29) for emergency delivery detection
+- Scan for enemies, write positions (slots 25-27)
+- Set danger signal (slot 28) if enemies within 20 tiles
+- Write trap locations (slots 30-39) when placed
+- Write role assignments (slots 4-23) during spawn
 
 ## Technical Specifications
 
@@ -267,25 +320,46 @@ ratbot4/RobotPlayer.java (~500 lines)
 
 ### Spawning Logic:
 ```java
-// PHASE 1: Spawn 15 rats ASAP (rounds 1-15) for rush defense
-if (spawnCount < 15 && round <= 30) {
+// PHASE 1: Spawn 12 rats (affordable with cheese budget)
+if (spawnCount < 12) {
     int cost = rc.getCurrentRatCost();
-    if (globalCheese > cost + 50) { // Keep small reserve
-        spawn rat; // All are attackers initially
+    if (globalCheese > cost + 100) { // Keep reserve
+        // Spawn and assign role
+        int roleType = (spawnCount < 8) ? 0 : 1; // 0=ATK, 1=COL
+
+        spawn rat at distance 2;
+
+        // Write role to shared array
+        rc.writeSharedArray(4 + spawnCount, roleType);
+
         spawnCount++;
     }
 }
 
-// PHASE 2: Replacements (after round 30)
-if (round > 30 && round % 50 == 0 && spawnCount < 25) {
-    spawn rat; // Role depends on losses
+// PHASE 2: Replacements (after initial 12)
+if (spawnCount >= 12 && round % 50 == 0 && spawnCount < 20) {
+    // Count visible rats by role
+    int visibleAttackers = count attackers in vision;
+    int visibleCollectors = count collectors in vision;
+
+    // Replace what's missing
+    int roleToSpawn = (visibleCollectors < 3) ? 1 : 0;
+
+    spawn rat;
+    rc.writeSharedArray(4 + spawnCount, roleToSpawn);
+    spawnCount++;
 }
 
-// Role assignment (for rats):
-if (round <= 30) {
-    myRole = ATTACKER; // Everyone fights during rush
-} else {
-    myRole = (spawnNumber < 10) ? ATTACKER : COLLECTOR;
+// Role assignment (for baby rats):
+// Read from shared array (king wrote during spawn)
+private static int myRole = -1;
+private static int mySpawnNumber = -1;
+
+if (myRole == -1) {
+    // Determine spawn number from visible count + timing
+    // Or king writes rat ID to role map
+    mySpawnNumber = (rc.getID() - 10000) % 20; // IDs start at 10000+
+    myRole = rc.readSharedArray(4 + mySpawnNumber);
 }
 ```
 
@@ -393,19 +467,28 @@ Usage: Only when needed (stuck or long distance)
 
 **Before committing**:
 - [ ] Code < 600 lines
-- [ ] No logging (or minimal)
-- [ ] Bytecode estimate < 5,000 per round
-- [ ] Roles clearly defined
+- [ ] Zero logging (no System.out.println)
+- [ ] Bytecode estimate < 5,000 per round average
+- [ ] 8 attackers + 4 collectors verified after spawn
 - [ ] FLEE behavior implemented
-- [ ] Bug2 integrated
+- [ ] Bug2 integrated with instance state (not static)
+- [ ] Emergency delivery protocol implemented
+- [ ] Trap avoidance in FLEE behavior
 
-**Testing checklist**:
-- [ ] vs ratbot3: Do defenders help?
-- [ ] vs ratbot3: Do collectors survive better?
-- [ ] Mirror match: Which king starves (measure economy)
-- [ ] vs examplefuncsplayer: Basic functionality
+**Critical Tests** (Must pass):
+- [ ] King never starves: cheese > 0 for all rounds
+- [ ] Role assignment: exactly 8 ATK + 4 COL after spawn complete
+- [ ] Cheese sustainability: globalCheese > 500 at round 50
+- [ ] Emergency delivery: king receives cheese when HP < 100
+- [ ] Collector survival: collector deaths < 3 in first 200 rounds
 
-**Success = King survives by getting deliveries, not by round count**
+**Performance Tests**:
+- [ ] vs ratbot3: More deliveries, fewer collector deaths
+- [ ] Mirror match: King survives longer (measures economy)
+- [ ] vs quanticbot: Survive past round 30 (defeat early rush)
+
+**Success = King survives by getting deliveries**
+Deliveries > 40 per match AND king cheese never < 50
 
 ## Ready to Proceed?
 
