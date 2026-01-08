@@ -104,10 +104,12 @@ Attack enemy rats to reduce their economy.
 - King writes role assignments to shared array during spawn
 - Rats read role from shared array slot (4 + spawnNumber)
 
-**Phase 3 (Round 30+): REPLACEMENT**
-- Replace losses: 1 rat every 50 rounds
-- Replace same role as what died (track by visible count)
+**Phase 3 (Round 13+): CONTINUOUS REPLACEMENT**
+- Check visible collectors every round
+- If visible collectors < 3: spawn collector immediately
+- If visible attackers < 6: spawn attacker immediately
 - Cap at 20 total spawned
+- Keeps economy running even when collectors die
 
 **Economic Model**:
 ```
@@ -139,15 +141,17 @@ Reserve needed: 500 minimum
   - Otherwise: base attack (10 damage)
 - **FLEE**: Never (attackers fight until death)
 
-**COLLECTOR** (4 rats - spawn numbers 8-11):
+**COLLECTOR** (4 rats minimum - spawn numbers 8-11+):
 - **Job**: Feed king, prevent starvation
 - **Behavior**:
-  1. **EMERGENCY DELIVERY**: If king HP < 100 → deliver immediately (ignore danger)
-  2. **FLEE**: If enemy within 15 tiles AND king HP > 100 → run to king
-  3. **DELIVER**: If carrying >= 10 cheese AND safe → deliver
+  1. **EMERGENCY DELIVERY**: If king HP < 100 → deliver immediately
+  2. **COMBAT**: Attack enemies if they're adjacent (defend yourself)
+  3. **DELIVER**: If carrying >= 10 cheese → deliver
   4. **COLLECT**: Find nearest cheese
-- **Combat**: FLEE only (never fight)
-- **HP awareness**: Flee if HP < 50
+- **Combat**: Fight back when attacked (don't run)
+- **Replacement**: Spawn new collector when visible < 3
+
+**No FLEE behavior** - collectors fight, we replace losses aggressively
 
 **Role Assignment System**:
 ```java
@@ -185,55 +189,50 @@ myRole = rc.readSharedArray(4 + mySpawnNumber);
 - Focus fire: attack wounded enemies first
 - Stay near our king (within 20 tiles)
 
-**COLLECTOR BEHAVIOR** (Critical - prevent late game deaths):
+**COLLECTOR BEHAVIOR**:
 
 **Priority 1: EMERGENCY KING DELIVERY**
 ```java
-int kingHP = rc.readSharedArray(9); // King writes HP to slot 9
+int kingHP = rc.readSharedArray(29); // King writes HP to slot 29
 if (kingHP < 100 && rc.getRawCheese() > 0) {
-    // OVERRIDE FLEE - King dying!
-    MapLocation kingLoc = read from shared array;
+    // King critical - deliver now!
+    MapLocation kingLoc = read from shared array (slots 0-1);
     if (distToKing <= 9 && rc.canTransferCheese(kingLoc, cheese)) {
         rc.transferCheese(kingLoc, cheese);
         return;
     }
-    // Move toward king (ignore enemies)
     moveWithBug2(kingLoc);
     return;
 }
 ```
 
-**Priority 2: FLEE FROM DANGER**
+**Priority 2: DEFEND YOURSELF**
 ```java
-RobotInfo[] enemies = rc.senseNearbyRobots(225, opponent); // 15 tiles
-if (enemies.length > 0 || rc.getHealth() < 50) {
-    MapLocation kingLoc = read from shared array;
-
-    // Check for friendly traps on path
-    MapLocation[] trapLocs = read trap locations from shared array (slots 10-19);
-
-    // Move toward king, avoiding traps
-    Direction toKing = me.directionTo(kingLoc);
-    // Check if next tile is a trap
-    if (!isTrapTile(me.add(toKing), trapLocs)) {
-        if (rc.canMove(toKing)) {
-            rc.move(toKing);
-            return;
-        }
+RobotInfo[] enemies = rc.senseNearbyRobots(2, opponent); // Adjacent only
+for (RobotInfo enemy : enemies) {
+    if (rc.canAttack(enemy.getLocation())) {
+        rc.attack(enemy.getLocation()); // Fight back!
+        return;
     }
+}
+```
 
-    // Blocked or trap ahead - use Bug2 to navigate safely
-    moveWithBug2(kingLoc);
+**Priority 3: DELIVER**
+```java
+if (rc.getRawCheese() >= 10) {
+    deliver to king;
     return;
 }
 ```
 
-**Priority 3: Normal Collection**
-- Deliver if carrying >= 10 cheese
-- Collect nearest cheese
-- Use Bug2 when stuck > 3 rounds
+**Priority 4: COLLECT**
+```java
+Find nearest cheese;
+Move toward it;
+Pick up if adjacent;
+```
 
-**Never fight** - collectors only flee and survive
+**Collectors fight when attacked** - no fleeing, we replace losses
 
 ### Combat Behavior (CRITICAL - Must Match Enemy):
 
@@ -336,18 +335,37 @@ if (spawnCount < 12) {
     }
 }
 
-// PHASE 2: Replacements (after initial 12)
-if (spawnCount >= 12 && round % 50 == 0 && spawnCount < 20) {
+// PHASE 2: Continuous replacement (after initial 12)
+if (spawnCount >= 12 && spawnCount < 20) {
     // Count visible rats by role
-    int visibleAttackers = count attackers in vision;
-    int visibleCollectors = count collectors in vision;
+    RobotInfo[] team = rc.senseNearbyRobots(-1, rc.getTeam());
+    int visibleAttackers = 0;
+    int visibleCollectors = 0;
+    for (RobotInfo r : team) {
+        if (r.getType() == UnitType.BABY_RAT) {
+            int rSpawnNum = estimate from ID; // (ID - 10000) % 20
+            int rRole = rc.readSharedArray(4 + rSpawnNum);
+            if (rRole == 0) visibleAttackers++;
+            else visibleCollectors++;
+        }
+    }
 
-    // Replace what's missing
-    int roleToSpawn = (visibleCollectors < 3) ? 1 : 0;
-
-    spawn rat;
-    rc.writeSharedArray(4 + spawnCount, roleToSpawn);
-    spawnCount++;
+    // Replace immediately if below minimum
+    if (visibleCollectors < 3) {
+        int cost = rc.getCurrentRatCost();
+        if (globalCheese > cost + 200) { // Higher reserve for replacement
+            spawn rat;
+            rc.writeSharedArray(4 + spawnCount, 1); // Spawn collector
+            spawnCount++;
+        }
+    } else if (visibleAttackers < 6) {
+        int cost = rc.getCurrentRatCost();
+        if (globalCheese > cost + 200) {
+            spawn rat;
+            rc.writeSharedArray(4 + spawnCount, 0); // Spawn attacker
+            spawnCount++;
+        }
+    }
 }
 
 // Role assignment (for baby rats):
