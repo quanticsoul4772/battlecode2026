@@ -146,27 +146,6 @@ public class RobotPlayer {
         if (spawnCount >= 10 && trapCount < 3 && cheese > 300) {
             placeCatTrap(rc);
         }
-
-        // KING MOVEMENT (from lectureplayer)
-        // Moving king is harder to kill than stationary king
-        // Also helps collect cheese and escape from enemies
-        MapLocation forwardLoc = rc.adjacentLocation(rc.getDirection());
-
-        // Remove dirt if blocking
-        if (rc.canRemoveDirt(forwardLoc)) {
-            rc.removeDirt(forwardLoc);
-        }
-
-        // Move forward
-        if (rc.canMoveForward()) {
-            rc.moveForward();
-        } else {
-            // Turn random direction if blocked
-            Direction randomDir = directions[(round * 7 + me.x) % 8];
-            if (rc.canTurn()) {
-                rc.turn(randomDir);
-            }
-        }
     }
 
     private static void spawnRat(RobotController rc) throws GameActionException {
