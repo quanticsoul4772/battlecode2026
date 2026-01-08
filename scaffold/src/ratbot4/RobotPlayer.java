@@ -369,6 +369,23 @@ public class RobotPlayer {
         // VISUAL DEBUG: Show collector status
         rc.setIndicatorString("COL cheese:" + rc.getRawCheese());
 
+        // CLEAR OBSTACLES: Remove enemy traps and dirt blocking path
+        Direction facing = rc.getDirection();
+        MapLocation ahead = rc.adjacentLocation(facing);
+
+        if (rc.canRemoveRatTrap(ahead)) {
+            rc.removeRatTrap(ahead); // Clear enemy rat trap (50 damage saved!)
+            return;
+        }
+        if (rc.canRemoveCatTrap(ahead)) {
+            rc.removeCatTrap(ahead); // Clear enemy cat trap
+            return;
+        }
+        if (rc.canRemoveDirt(ahead)) {
+            rc.removeDirt(ahead); // Clear dirt wall
+            return;
+        }
+
         // FIND NEAREST CHEESE
         // Scan vision radius (20 tiles squared ≈ 4.5 tiles)
         MapLocation[] nearby = rc.getAllLocationsWithinRadiusSquared(me, 20);
