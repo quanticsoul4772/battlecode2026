@@ -16,7 +16,7 @@
 3. **Starvation late game**: Collectors die → no deliveries → king starves
 4. **Attack king strategy fails**: Can't navigate 3x3 king geometry
 5. **Excessive logging**: 13K bytecode wasted
-6. **No flee behavior**: Rats don't escape when low HP
+6. **Slow replacement**: 1 per 50 rounds too slow when collectors die
 
 ## What Actually Works
 
@@ -36,7 +36,7 @@
 3. ❌ **Distance-reducing movement**: Made deliveries worse
 4. ❌ **BFS pathfinding**: Too expensive bytecode-wise
 5. ❌ **Attacking only king**: Can't navigate to 3x3 target
-6. ❌ **No HP awareness**: Rats don't flee when dying
+6. ❌ **Slow replacement**: Can't keep up with collector losses
 
 ## Game Mechanics (Critical Facts)
 
@@ -178,7 +178,7 @@ for (RobotInfo enemy : enemies) {
 - **Combat**: Fight back when attacked (don't run)
 - **Replacement**: Spawn new collector when visible < 3
 
-**No FLEE behavior** - collectors fight, we replace losses aggressively
+**No FIGHT behavior** - collectors fight, we replace losses aggressively
 
 **Role Assignment System**:
 ```java
@@ -502,7 +502,7 @@ Usage: Only when needed (stuck or long distance)
 ## Critical Success Factors
 
 ### Must Have:
-1. **Collectors survive**: FLEE from enemies, don't die
+1. **Collectors survive**: FIGHT from enemies, don't die
 2. **Regular deliveries**: 50+ per match minimum
 3. **King survival**: Never reach cheese < 50
 4. **Enemy combat**: Kill 5+ enemy rats per match
@@ -519,7 +519,7 @@ Usage: Only when needed (stuck or long distance)
 1. Spawn 8 rats with 3 roles
 2. Defender: attack enemies near our king
 3. Attacker: attack enemies anywhere
-4. Collector: collect cheese, deliver, FLEE
+4. Collector: collect cheese, deliver, FIGHT
 
 **Test**: Can collectors survive? Do defenders help?
 
@@ -532,7 +532,7 @@ Usage: Only when needed (stuck or long distance)
 **Test**: Do rats navigate obstacles better?
 
 ### Phase 3: Refine
-1. Tune FLEE distance
+1. Tune FIGHT distance
 2. Tune spawn ratios (maybe 1 DEF, 4 ATK, 3 COL)
 3. Optimize Bug2 usage conditions
 
@@ -575,10 +575,10 @@ Usage: Only when needed (stuck or long distance)
 - [ ] Zero logging (no System.out.println)
 - [ ] Bytecode estimate < 5,000 per round average
 - [ ] 8 attackers + 4 collectors verified after spawn
-- [ ] FLEE behavior implemented
+- [ ] FIGHT behavior implemented
 - [ ] Bug2 integrated with instance state (not static)
 - [ ] Emergency delivery protocol implemented
-- [ ] Trap avoidance in FLEE behavior
+- [ ] Trap avoidance in FIGHT behavior
 
 **Critical Tests** (Must pass):
 - [ ] King never starves: cheese > 0 for all rounds
@@ -599,7 +599,7 @@ Deliveries > 40 per match AND king cheese never < 50
 
 I will NOT write code until you confirm:
 1. Role split (2 DEF, 3 ATK, 3 COL) - agree?
-2. FLEE behavior for collectors - agree?
+2. FIGHT behavior for collectors - agree?
 3. Bug2 for all roles - agree?
 4. Anything else needed in plan?
 
