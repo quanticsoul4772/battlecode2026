@@ -119,10 +119,10 @@ public class RobotPlayer {
     private static int myRole = -1;
 
     private static void runBabyRat(RobotController rc) throws GameActionException {
-        // Read role from shared array
+        // Simple role: even ID = ATK, odd ID = COL (no shared array needed!)
         if (myRole == -1) {
-            int myNum = rc.getID() % 20;
-            myRole = rc.readSharedArray(4 + myNum);
+            myRole = (rc.getID() % 2 == 0) ? 0 : 1;
+            System.out.println("ROLE:" + rc.getRoundNum() + ":" + rc.getID() + ":" + (myRole == 0 ? "ATK" : "COL"));
         }
 
         if (myRole == 0) {
