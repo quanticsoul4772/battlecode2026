@@ -1,17 +1,15 @@
-# Battlecode 2026 - Ratbot 🐀
+# Battlecode 2026 - Ratbot
 
 [![CI Status](https://github.com/quanticsoul4772/battlecode2026/workflows/CI%20-%20Test%20and%20Quality%20Checks/badge.svg)](https://github.com/quanticsoul4772/battlecode2026/actions)
 [![Java 21](https://img.shields.io/badge/Java-21-orange.svg)](https://www.oracle.com/java/technologies/javase/jdk21-archive-downloads.html)
 [![Engine v1.0.6](https://img.shields.io/badge/Battlecode-v1.0.6-blue.svg)](https://battlecode.org)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-**Competition Bot for MIT Battlecode 2026 - "Uneasy Alliances"**
-
-A competitive AI bot featuring strategic resource management, pathfinding algorithms, and adaptive combat behavior. Built with bytecode optimization and comprehensive testing infrastructure.
+Competition bot for MIT Battlecode 2026 - "Uneasy Alliances". Features strategic resource management, pathfinding algorithms, and combat behavior optimized for bytecode constraints.
 
 ---
 
-## 🚀 Quick Start
+## Quick Start
 
 ```bash
 # Clone the repository
@@ -36,7 +34,7 @@ cd battlecode2026/scaffold
 
 ---
 
-## 📁 Project Structure
+## Project Structure
 
 ```
 battlecode2026/
@@ -62,7 +60,7 @@ battlecode2026/
 │   ├── quick_reference.md # Stats and costs
 │   └── ...               # 28+ documentation files
 ├── .github/workflows/    # CI/CD pipelines
-├── AGENTS.md             # 📖 Developer guide (START HERE)
+├── AGENTS.md             # Developer guide (start here)
 ├── RATBOT4_PLAN.md       # Current implementation strategy
 ├── SUCCESS_CRITERIA.md   # Performance metrics
 ├── .env.example          # Configuration template
@@ -71,7 +69,7 @@ battlecode2026/
 
 ---
 
-## 🤖 Current Bot: ratbot4
+## Current Bot: ratbot4
 
 ### Strategy Overview
 
@@ -81,27 +79,27 @@ battlecode2026/
 
 ### Key Features
 
-- ✅ **Adaptive Spawning**: 12 rats initially, replacement every 50 rounds
-- ✅ **Smart Combat**: Target baby rats (easier than 3×3 king), cheese-enhanced attacks when surplus > 500
-- ✅ **Economy Management**: Track cheese flow, emergency delivery protocols
-- ✅ **Pathfinding**: Bug2 algorithm for obstacle navigation
-- ✅ **Suicide Protocol**: Attackers self-destruct after 100 idle rounds (free population slots)
-- ✅ **Zero-Allocation Logging**: Performance tracking without bytecode overhead
-- ✅ **Bytecode Optimization**: Static buffers, backward loops, minimal allocations
+- Adaptive spawning: 12 rats initially, replacement every 50 rounds
+- Combat targeting: Attack baby rats (easier than 3x3 king), cheese-enhanced attacks when surplus exceeds 500
+- Economy management: Track cheese flow, emergency delivery protocols
+- Pathfinding: Bug2 algorithm for obstacle navigation
+- Attacker suicide: Self-destruct after 100 idle rounds to free population slots
+- Zero-allocation logging: Performance tracking without bytecode overhead
+- Bytecode optimization: Static buffers, backward loops, minimal allocations
 
 ### Performance Metrics
 
-**Success Criteria**:
+Success criteria:
 - King survives longer than enemy king
-- Positive cheese income (deliveries > 3 cheese/round)
-- Regular TRANSFER messages in logs
-- Death from combat (not starvation)
+- Positive cheese income (deliveries greater than 3 cheese per round)
+- Regular transfer messages in logs
+- Death from combat, not starvation
 
 See [SUCCESS_CRITERIA.md](SUCCESS_CRITERIA.md) for detailed metrics.
 
 ---
 
-## 🛠️ Development
+## Development
 
 ### Prerequisites
 
@@ -132,17 +130,17 @@ See [SUCCESS_CRITERIA.md](SUCCESS_CRITERIA.md) for detailed metrics.
 
 ### Code Quality Tools
 
-- **Checkstyle**: Java linting with style enforcement
-- **Spotless**: Google Java Format for consistent code style
-- **JaCoCo**: Test coverage tracking (60% minimum threshold)
-- **CI/CD**: GitHub Actions workflow for automated testing
+- Checkstyle: Java linting with style enforcement
+- Spotless: Google Java Format for consistent code style
+- JaCoCo: Test coverage tracking (60% minimum threshold)
+- CI/CD: GitHub Actions workflow for automated testing
 
 ### Testing Infrastructure
 
-- **Unit Tests**: 18+ test files for algorithms and bot logic
-- **Integration Tests**: Full game simulation tests
-- **Mock Framework**: Engine-independent testing
-- **Coverage**: 60%+ required (enforced by JaCoCo)
+- Unit tests: 18+ test files for algorithms and bot logic
+- Integration tests: Full game simulation tests
+- Mock framework: Engine-independent testing
+- Coverage: 60% minimum (enforced by JaCoCo)
 
 ```bash
 # Run specific tests
@@ -156,110 +154,108 @@ See [SUCCESS_CRITERIA.md](SUCCESS_CRITERIA.md) for detailed metrics.
 
 ---
 
-## 📚 Documentation
+## Documentation
 
 ### Essential Reading
 
-1. **[AGENTS.md](AGENTS.md)** - Complete developer guide (commands, conventions, workflows)
-2. **[RATBOT4_PLAN.md](RATBOT4_PLAN.md)** - Current implementation strategy and lessons learned
-3. **[SUCCESS_CRITERIA.md](SUCCESS_CRITERIA.md)** - How to measure bot performance
-4. **[.env.example](.env.example)** - Configuration options
+1. [AGENTS.md](AGENTS.md) - Complete developer guide (commands, conventions, workflows)
+2. [RATBOT4_PLAN.md](RATBOT4_PLAN.md) - Current implementation strategy and lessons learned
+3. [SUCCESS_CRITERIA.md](SUCCESS_CRITERIA.md) - How to measure bot performance
+4. [.env.example](.env.example) - Configuration options
 
 ### Game Documentation
 
-- **[claudedocs/complete_spec.md](claudedocs/complete_spec.md)** - Full game rules (17KB)
-- **[claudedocs/quick_reference.md](claudedocs/quick_reference.md)** - Stats, costs, and ranges
-- **[claudedocs/technical_notes.md](claudedocs/technical_notes.md)** - Engine internals
+- [claudedocs/complete_spec.md](claudedocs/complete_spec.md) - Full game rules (17KB)
+- [claudedocs/quick_reference.md](claudedocs/quick_reference.md) - Stats, costs, and ranges
+- [claudedocs/technical_notes.md](claudedocs/technical_notes.md) - Engine internals
 
 ### External Resources
 
-- **Competition Site**: https://battlecode.org
-- **Discord Community**: http://bit.ly/battlecode-discord
-- **Game Engine**: https://github.com/battlecode/battlecode26
-- **API Documentation**: https://play.battlecode.org/bc26/api
+- Competition site: https://battlecode.org
+- Discord community: http://bit.ly/battlecode-discord
+- Game engine: https://github.com/battlecode/battlecode26
+- API documentation: https://play.battlecode.org/bc26/api
 
 ---
 
-## 🏆 Tournament Schedule
+## Tournament Schedule
 
-- **Sprint 1**: January 12, 2026 (Qualifier)
-- **Sprint 2**: January 19, 2026
-- **Finals**: January 31, 2026
+- Sprint 1: January 12, 2026 (Qualifier)
+- Sprint 2: January 19, 2026
+- Finals: January 31, 2026
 
 ---
 
-## 🤝 Contributing
+## Contributing
 
 ### Development Workflow
 
-1. **Create feature branch**: `git checkout -b feature/new-strategy`
-2. **Write tests first**: Add failing tests in `test/`
-3. **Implement feature**: Update code in `src/ratbot/`
-4. **Run quality checks**: `./gradlew check`
-5. **Format code**: `./gradlew spotlessApply`
-6. **Test in match**: Update `gradle.properties`, run `./gradlew run`
-7. **Commit with description**: Follow conventional commits
-8. **Push and create PR**: CI will run automatically
+1. Create feature branch: `git checkout -b feature/new-strategy`
+2. Write tests first: Add failing tests in `test/`
+3. Implement feature: Update code in `src/ratbot/`
+4. Run quality checks: `./gradlew check`
+5. Format code: `./gradlew spotlessApply`
+6. Test in match: Update `gradle.properties`, run `./gradlew run`
+7. Commit with description: Follow conventional commits
+8. Push and create PR: CI will run automatically
 
 ### Code Conventions
 
-- **Naming**: PascalCase (classes), camelCase (methods/variables), UPPER_SNAKE_CASE (constants)
-- **Line Length**: Max 120 characters
-- **Formatting**: Google Java Format (auto-applied by spotless)
-- **Comments**: Minimal - only for complex algorithms
-- **Bytecode**: Zero-allocation patterns, static buffers, backward loops
+- Naming: PascalCase (classes), camelCase (methods/variables), UPPER_SNAKE_CASE (constants)
+- Line length: Max 120 characters
+- Formatting: Google Java Format (auto-applied by spotless)
+- Comments: Minimal - only for complex algorithms
+- Bytecode: Zero-allocation patterns, static buffers, backward loops
 
 See [AGENTS.md](AGENTS.md) for detailed conventions.
 
 ---
 
-## 🔬 Game Mechanics (Critical)
+## Game Mechanics
 
 ### Movement
-- **Forward**: 10 cooldown
-- **Strafe**: 18 cooldown (PENALTY - avoid!)
-- **Turn**: 10 cooldown
-- **Best Practice**: Turn + moveForward (20 total)
+- Forward: 10 cooldown
+- Strafe: 18 cooldown (penalty - avoid when possible)
+- Turn: 10 cooldown
+- Best practice: Turn + moveForward (20 total)
 
 ### Combat
-- **Range**: Adjacent only (distanceSquared ≤ 2)
-- **Vision**: 90° cone, must face target
-- **Damage**: 10 base, 13 enhanced (costs 8 cheese)
-- **Baby Rat HP**: 100 (need 10 hits to kill)
+- Range: Adjacent only (distanceSquared ≤ 2)
+- Vision: 90° cone, must face target
+- Damage: 10 base, 13 enhanced (costs 8 cheese)
+- Baby rat HP: 100 (need 10 hits to kill)
 
 ### Economy
-- **King Consumption**: 3 cheese/round
-- **Spawn Cost**: 10 + 10 × floor(count/4)
-- **Transfer Range**: 3 tiles (distanceSquared ≤ 9)
-- **Critical**: King starvation = instant loss
+- King consumption: 3 cheese/round
+- Spawn cost: 10 + 10 × floor(count/4)
+- Transfer range: 3 tiles (distanceSquared ≤ 9)
+- King starvation = instant loss
 
 ---
 
-## 📊 Tech Stack
+## Tech Stack
 
-- **Language**: Java 21
-- **Build**: Gradle 8.x
-- **Testing**: JUnit 4.13.2
-- **CI/CD**: GitHub Actions
-- **Code Quality**: Checkstyle, Spotless, JaCoCo
-- **Engine**: Battlecode 2026 v1.0.6
+- Language: Java 21
+- Build: Gradle 8.x
+- Testing: JUnit 4.13.2
+- CI/CD: GitHub Actions
+- Code quality: Checkstyle, Spotless, JaCoCo
+- Engine: Battlecode 2026 v1.0.6
 
 ---
 
-## 📝 License
+## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ---
 
-## 🙏 Acknowledgments
+## Acknowledgments
 
-- **MIT Battlecode Team** - For hosting the competition
-- **Claude Sonnet 4.5** - AI pair programming partner (50+ commits)
-- **Battlecode Community** - For strategies, discussions, and support
+- MIT Battlecode Team - For hosting the competition
+- Claude Sonnet 4.5 - AI pair programming partner (50+ commits)
+- Battlecode Community - For strategies, discussions, and support
 
 ---
 
-**Status**: 🟢 Active Development | **Engine**: v1.0.6 | **Bot**: ratbot4
-
-*Competing in MIT Battlecode 2026 - "Uneasy Alliances"*
+Status: Active development | Engine: v1.0.6 | Bot: ratbot4
