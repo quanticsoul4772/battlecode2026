@@ -165,59 +165,39 @@ public class RobotPlayer {
             return;
         }
 
-        // Attack ALL adjacent tiles (like lectureplayer does!)
-        boolean attacked = false;
+        // Attack adjacent enemies
         for (Direction dir : directions) {
             MapLocation loc = me.add(dir);
             if (rc.canAttack(loc)) {
-                // Use cheese-enhanced attacks when we have surplus
                 int globalCheese = rc.getGlobalCheese();
                 if (globalCheese > 500 && rc.canAttack(loc, 8)) {
-                    rc.attack(loc, 8); // 13 damage
-                    attacked = true;
-                } else if (!attacked) { // Only one basic attack per turn
-                    rc.attack(loc); // 10 damage
-                    attacked = true;
+                    rc.attack(loc, 8);
+                } else {
+                    rc.attack(loc);
                 }
+                return; // Attacked, done
             }
         }
 
-        if (attacked) {
-            return; // Attacked something, done for this round
-        }
-
-        // No attacks landed - check what's nearby for debugging
-        for (RobotInfo enemy : enemies) {
-            MapLocation enemyLoc = enemy.getLocation();
-            int dist = me.distanceSquaredTo(enemyLoc);
-
-            if (dist <= 10) {
-                System.out.println("ENEMY_NEAR:" + rc.getRoundNum() + ":dist=" + dist + " HP=" + enemy.getHealth());
-            }
-
-            // If it's a king and we're close, try attacking individual tiles (3x3)
-            if (enemy.getType() == UnitType.RAT_KING && me.distanceSquaredTo(enemyLoc) <= 10) {
-                // Try each king tile
-                for (int dx = -1; dx <= 1; dx++) {
-                    for (int dy = -1; dy <= 1; dy++) {
-                        MapLocation tile = new MapLocation(enemyLoc.x + dx, enemyLoc.y + dy);
-                        if (rc.canAttack(tile)) {
-                            rc.attack(tile);
-                            return;
-                        }
-                    }
+        // Chase enemies we can see
+        if (enemies.length > 0) {
+            RobotInfo closest = enemies[0];
+            for (RobotInfo enemy : enemies) {
+                if (me.distanceSquaredTo(enemy.getLocation()) < me.distanceSquaredTo(closest.getLocation())) {
+                    closest = enemy;
                 }
             }
 
-            // Chase enemy (baby rat or king)
-            if (me.distanceSquaredTo(enemyLoc) <= 100) {
-                move(rc, enemyLoc);
-                return;
-            }
+            MapLocation enemyLoc = closest.getLocation();
+            move(rc, enemyLoc);
+            return;
         }
 
-        // No enemies visible - RUSH ENEMY KING (like enemy does to us!)
+        // No enemies visible - RUSH ENEMY KING
         MapLocation enemyKingLoc = new MapLocation(rc.readSharedArray(2), rc.readSharedArray(3));
+        if (rc.getRoundNum() % 50 == 0) {
+            System.out.println("RUSH:" + rc.getRoundNum() + ":" + rc.getID() + ":to " + enemyKingLoc);
+        }
         move(rc, enemyKingLoc);
     }
 
@@ -300,19 +280,26 @@ public class RobotPlayer {
     }
 
     // === MOVEMENT ===
-    private static MapLocation lastPos = null;
-    private static int stuckCount = 0;
+    // Instance state per rat (not static!)
+    private static java.util.HashMap<Integer, MapLocation> ratLastPos = new java.util.HashMap<>();
+    private static java.util.HashMap<Integer, Integer> ratStuckCount = new java.util.HashMap<>();
 
     private static void move(RobotController rc, MapLocation target) throws GameActionException {
         MapLocation me = rc.getLocation();
+        int id = rc.getID();
 
-        // Stuck detection
+        // Stuck detection (per-rat state)
+        MapLocation lastPos = ratLastPos.get(id);
+        int stuckCount = ratStuckCount.getOrDefault(id, 0);
+
         if (me.equals(lastPos)) {
             stuckCount++;
         } else {
             stuckCount = 0;
-            lastPos = me;
         }
+
+        ratLastPos.put(id, me);
+        ratStuckCount.put(id, stuckCount);
 
         // Use Bug2 when stuck (after 2 rounds, not 3)
         if (stuckCount >= 2) {
