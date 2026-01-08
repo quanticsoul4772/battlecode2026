@@ -146,6 +146,25 @@ public class RobotPlayer {
         if (spawnCount >= 10 && trapCount < 3 && cheese > 300) {
             placeCatTrap(rc);
         }
+
+        // ==================== KING MOVEMENT ====================
+        // Mobile king is harder for enemies to kill
+        // Can also collect nearby cheese and escape danger
+        MapLocation ahead = rc.adjacentLocation(rc.getDirection());
+
+        // Clear obstacles
+        if (rc.canRemoveDirt(ahead)) {
+            rc.removeDirt(ahead);
+        }
+
+        // Move forward
+        if (rc.canMoveForward()) {
+            rc.moveForward();
+        } else if (rc.canTurn()) {
+            // Blocked - turn to try different direction
+            Direction newDir = directions[(round * 7 + me.x) % 8];
+            rc.turn(newDir);
+        }
     }
 
     private static void spawnRat(RobotController rc) throws GameActionException {
