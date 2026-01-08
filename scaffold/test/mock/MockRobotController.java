@@ -66,6 +66,10 @@ public class MockRobotController implements RobotController {
         return movementCooldown < 10;
     }
 
+    public boolean canTurn(Direction dir) {
+        return movementCooldown < 10;
+    }
+
     public void turn(Direction dir) {
         if (canTurn()) {
             facing = dir;
