@@ -136,9 +136,11 @@ public class RobotPlayer {
         if (myRole == -1) {
             myRole = (id % 2 == 0) ? 0 : 1;  // Even ID=attack, odd ID=collect
             String role = (myRole == 0) ? "ATTACK" : "COLLECT";
+            System.out.println("ROLE:" + round + ":" + id + ":" + role);
         }
 
-        if (round % 50 == 0) {
+        if (round % 10 == 0) {
+            System.out.println("RAT:" + round + ":" + id + ":pos=" + me + " role=" + (myRole == 0 ? "ATK" : "COL"));
         }
 
         if (myRole == 0) {
@@ -159,29 +161,27 @@ public class RobotPlayer {
         int id = rc.getID();
         MapLocation me = rc.getLocation();
 
+        System.out.println("ATTACK:" + round + ":" + id + ":executing");
+
         // FIRST: Look for ANY enemy to attack (baby rats easier than king!)
         RobotInfo[] enemies = rc.senseNearbyRobots(-1, rc.getTeam().opponent());
 
-        // Attack ALL adjacent tiles with CHEESE-ENHANCED attacks
-        for (Direction dir : directions) {
-            MapLocation loc = me.add(dir);
-            if (rc.canAttack(loc)) {
-                int globalCheese = rc.getGlobalCheese();
-                if (globalCheese > 500 && rc.canAttack(loc, 8)) {
-                    rc.attack(loc, 8); // 13 damage
-                } else {
-                    rc.attack(loc); // 10 damage
-                }
-                return;
-            }
+        if (round % 10 == 0) {
+            System.out.println("ENEMIES:" + round + ":" + id + ":count=" + enemies.length);
         }
 
-        // Attack enemy baby rats we can see
+        // Attack ENEMY baby rats only
         for (RobotInfo enemy : enemies) {
             if (enemy.getType() == UnitType.BABY_RAT) {
                 MapLocation enemyLoc = enemy.getLocation();
                 if (rc.canAttack(enemyLoc)) {
-                    rc.attack(enemyLoc);
+                    int globalCheese = rc.getGlobalCheese();
+                    if (globalCheese > 500 && rc.canAttack(enemyLoc, 8)) {
+                        rc.attack(enemyLoc, 8); // 13 damage
+                    } else {
+                        rc.attack(enemyLoc); // 10 damage
+                    }
+                    System.out.println("ATTACK_HIT:" + round + ":" + id);
                     return;
                 }
             }
@@ -422,6 +422,7 @@ public class RobotPlayer {
         // STUCK RECOVERY: If stuck 2+ rounds, immediately escape
         // Don't wait 3 rounds - move NOW!
         if (stuckRounds >= 2) {
+            System.out.println("STUCK:" + round + ":" + id + ":rounds=" + stuckRounds + " pos=" + me);
 
             // Prioritize perpendicular to desired direction (likely less congested)
             Direction[] escapeOrder = {
