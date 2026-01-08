@@ -178,7 +178,7 @@ for (RobotInfo enemy : enemies) {
 - **Combat**: Fight back when attacked (don't run)
 - **Replacement**: Spawn new collector when visible < 3
 
-**No FIGHT behavior** - collectors fight, we replace losses aggressively
+**Collectors fight back when attacked** - aggressive replacement maintains economy
 
 **Role Assignment System**:
 ```java
@@ -502,7 +502,7 @@ Usage: Only when needed (stuck or long distance)
 ## Critical Success Factors
 
 ### Must Have:
-1. **Collectors survive**: FIGHT from enemies, don't die
+1. **Collectors maintained**: Fast replacement keeps 3+ collectors alive
 2. **Regular deliveries**: 50+ per match minimum
 3. **King survival**: Never reach cheese < 50
 4. **Enemy combat**: Kill 5+ enemy rats per match
@@ -519,7 +519,7 @@ Usage: Only when needed (stuck or long distance)
 1. Spawn 8 rats with 3 roles
 2. Defender: attack enemies near our king
 3. Attacker: attack enemies anywhere
-4. Collector: collect cheese, deliver, FIGHT
+4. Collector: collect cheese, deliver, fight when attacked
 
 **Test**: Can collectors survive? Do defenders help?
 
@@ -599,7 +599,7 @@ Deliveries > 40 per match AND king cheese never < 50
 
 I will NOT write code until you confirm:
 1. Role split (2 DEF, 3 ATK, 3 COL) - agree?
-2. FIGHT behavior for collectors - agree?
+2. Fast replacement for collectors - approved
 3. Bug2 for all roles - agree?
 4. Anything else needed in plan?
 
