@@ -163,22 +163,29 @@ public class RobotPlayer {
         }
 
         // ==================== KING MOVEMENT ====================
-        // Mobile king is harder for enemies to kill
-        // Can also collect nearby cheese and escape danger
-        MapLocation ahead = rc.adjacentLocation(rc.getDirection());
+        // ONLY move if safe (no cats or enemy rats nearby)
+        RobotInfo[] threats = rc.senseNearbyRobots(25, Team.NEUTRAL); // Check for cats (5 tile radius)
+        RobotInfo[] enemyRats = rc.senseNearbyRobots(25, rc.getTeam().opponent()); // Check for enemy rats
 
-        // Clear obstacles
-        if (rc.canRemoveDirt(ahead)) {
-            rc.removeDirt(ahead);
-        }
+        // STAY STILL if any threats nearby (safety first!)
+        if (threats.length == 0 && enemyRats.length == 0) {
+            MapLocation ahead = rc.adjacentLocation(rc.getDirection());
 
-        // Move forward
-        if (rc.canMoveForward()) {
-            rc.moveForward();
-        } else if (rc.canTurn()) {
-            // Blocked - turn to try different direction
-            Direction newDir = directions[(round * 7 + me.x) % 8];
-            rc.turn(newDir);
+            // Clear obstacles
+            if (rc.canRemoveDirt(ahead)) {
+                rc.removeDirt(ahead);
+            }
+
+            // Move forward slowly (every other round)
+            if (round % 2 == 0 && rc.canMoveForward()) {
+                rc.moveForward();
+            } else if (rc.canTurn()) {
+                // Turn occasionally to explore
+                if (round % 10 == 0) {
+                    Direction newDir = directions[(round / 10) % 8];
+                    rc.turn(newDir);
+                }
+            }
         }
     }
 
