@@ -135,16 +135,28 @@ public class RobotPlayer {
         // Attack enemies (baby rats AND king!)
         for (RobotInfo enemy : enemies) {
             MapLocation enemyLoc = enemy.getLocation();
+            int dist = me.distanceSquaredTo(enemyLoc);
+
+            // Debug attack attempts
+            if (dist <= 10) {
+                System.out.println("ENEMY_NEAR:" + rc.getRoundNum() + ":" + rc.getID() + ":dist=" + dist + " canAttack=" + rc.canAttack(enemyLoc) + " HP=" + enemy.getHealth());
+            }
 
             // Attack if we can
             if (rc.canAttack(enemyLoc)) {
-                // Cheese-enhanced if conditions met
+                // Use cheese-enhanced attacks (spec says raw first, then global)
                 int globalCheese = rc.getGlobalCheese();
-                if (globalCheese > 500 && enemy.getHealth() < 100 && rc.getRawCheese() >= 8) {
-                    rc.attack(enemyLoc, 8);
-                } else {
-                    rc.attack(enemyLoc);
+                if (globalCheese > 500) {
+                    // Try enhanced attack (uses global cheese if we don't have raw)
+                    if (rc.canAttack(enemyLoc, 8)) {
+                        rc.attack(enemyLoc, 8); // 13 damage!
+                        System.out.println("ATTACK_ENHANCED:" + rc.getRoundNum() + ":" + rc.getID() + ":13dmg");
+                        return;
+                    }
                 }
+                // Fallback to basic attack
+                rc.attack(enemyLoc);
+                System.out.println("ATTACK_BASIC:" + rc.getRoundNum() + ":" + rc.getID() + ":10dmg");
                 return;
             }
 
