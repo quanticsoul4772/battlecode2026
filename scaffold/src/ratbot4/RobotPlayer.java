@@ -272,6 +272,39 @@ public class RobotPlayer {
             System.out.println("ENEMIES:" + round + ":" + id + ":count=" + enemies.length);
         }
 
+        // ==================== RATNAPPING ====================
+        // Priority 0: Ratnap wounded enemies (HP < 50)
+        // Grab them and throw toward our king for fall damage
+        RobotInfo carrying = rc.getCarrying();
+
+        // Grab wounded enemies
+        if (carrying == null) {
+            for (RobotInfo enemy : enemies) {
+                if (enemy.getType() == UnitType.BABY_RAT && enemy.getHealth() < 50) {
+                    if (rc.canCarryRat(enemy.getLocation())) {
+                        rc.carryRat(enemy.getLocation());
+                        System.out.println("RATNAP:" + round + ":" + id + ":grabbed enemy HP=" + enemy.getHealth());
+                        return;
+                    }
+                }
+            }
+        }
+
+        // Throw carried enemy
+        if (carrying != null && rc.canThrowRat()) {
+            MapLocation ourKing = new MapLocation(rc.readSharedArray(0), rc.readSharedArray(1));
+            Direction toKing = me.directionTo(ourKing);
+
+            if (rc.getDirection() != toKing && rc.canTurn()) {
+                rc.turn(toKing);
+                return;
+            }
+
+            rc.throwRat();
+            System.out.println("THROW:" + round + ":" + id);
+            return;
+        }
+
         // ==================== ATTACK ENEMY BABY RATS (Priority 1) ====================
         // Baby rats are 1x1 (easy to hit) vs kings 3x3 (hard to hit)
         // Killing enemy rats reduces their economy and triggers backstab mode
