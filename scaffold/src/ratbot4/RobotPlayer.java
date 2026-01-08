@@ -141,64 +141,52 @@ public class RobotPlayer {
 
     private static void runAttacker(RobotController rc) throws GameActionException {
         MapLocation me = rc.getLocation();
+        int round = rc.getRoundNum();
+        int id = rc.getID();
+
+        if (round % 50 == 0) {
+            System.out.println("ATK:" + round + ":" + id + ":running attacker");
+        }
+
         RobotInfo[] enemies = rc.senseNearbyRobots(-1, rc.getTeam().opponent());
 
-        // RATNAP wounded enemies
-        for (RobotInfo enemy : enemies) {
-            if (enemy.getType() == UnitType.BABY_RAT && enemy.getHealth() < 50) {
-                if (rc.canCarryRat(enemy.getLocation())) {
-                    rc.carryRat(enemy.getLocation());
-                    return;
-                }
-            }
+        if (round % 50 == 0) {
+            System.out.println("ATK_A:" + round + ":" + id + ":enemies=" + enemies.length);
         }
 
-        // Throw carried rat
-        if (rc.getCarrying() != null && rc.canThrowRat()) {
-            MapLocation kingLoc = new MapLocation(rc.readSharedArray(0), rc.readSharedArray(1));
-            Direction toKing = me.directionTo(kingLoc);
-            if (rc.getDirection() != toKing && rc.canTurn()) {
-                rc.turn(toKing);
+        // Attack adjacent ENEMIES only
+        for (RobotInfo enemy : enemies) {
+            MapLocation enemyLoc = enemy.getLocation();
+            if (me.distanceSquaredTo(enemyLoc) <= 2 && rc.canAttack(enemyLoc)) {
+                rc.attack(enemyLoc);
+                if (round % 50 == 0) {
+                    System.out.println("ATK_B:" + round + ":" + id + ":attacked enemy");
+                }
                 return;
             }
-            rc.throwRat();
-            return;
         }
 
-        // Attack adjacent enemies
-        for (Direction dir : directions) {
-            MapLocation loc = me.add(dir);
-            if (rc.canAttack(loc)) {
-                int globalCheese = rc.getGlobalCheese();
-                if (globalCheese > 500 && rc.canAttack(loc, 8)) {
-                    rc.attack(loc, 8);
-                } else {
-                    rc.attack(loc);
-                }
-                return; // Attacked, done
-            }
-        }
-
-        // Chase enemies we can see
+        // Chase enemies
         if (enemies.length > 0) {
+            if (round % 50 == 0) {
+                System.out.println("ATK_C:" + round + ":" + id + ":chasing");
+            }
             RobotInfo closest = enemies[0];
-            for (RobotInfo enemy : enemies) {
-                if (me.distanceSquaredTo(enemy.getLocation()) < me.distanceSquaredTo(closest.getLocation())) {
-                    closest = enemy;
+            for (RobotInfo e : enemies) {
+                if (me.distanceSquaredTo(e.getLocation()) < me.distanceSquaredTo(closest.getLocation())) {
+                    closest = e;
                 }
             }
-
-            MapLocation enemyLoc = closest.getLocation();
-            move(rc, enemyLoc);
+            move(rc, closest.getLocation());
             return;
         }
 
-        // No enemies visible - RUSH ENEMY KING
-        MapLocation enemyKingLoc = new MapLocation(rc.readSharedArray(2), rc.readSharedArray(3));
-        if (rc.getRoundNum() % 50 == 0) {
-            System.out.println("RUSH:" + rc.getRoundNum() + ":" + rc.getID() + ":to " + enemyKingLoc);
+        // Rush enemy king
+        if (round % 50 == 0) {
+            System.out.println("ATK_D:" + round + ":" + id + ":rushing king");
         }
-        move(rc, enemyKingLoc);
+        MapLocation enemyKing = new MapLocation(rc.readSharedArray(2), rc.readSharedArray(3));
+        move(rc, enemyKing);
     }
 
     private static void runCollector(RobotController rc) throws GameActionException {
