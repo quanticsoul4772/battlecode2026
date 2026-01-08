@@ -54,17 +54,28 @@ public class RobotPlayer {
         // SPAWN 12 rats
         if (spawnCount < 12) {
             int cost = rc.getCurrentRatCost();
-            if (cheese > cost + 100) {
-                for (Direction dir : directions) {
-                    MapLocation loc = me.add(dir).add(dir);
-                    if (rc.canBuildRat(loc)) {
-                        int role = (spawnCount < 8) ? 0 : 1; // 0=ATK, 1=COL
-                        rc.buildRat(loc);
-                        rc.writeSharedArray(4 + spawnCount, role);
-                        spawnCount++;
-                        System.out.println("SPAWN:" + round + ":rat#" + spawnCount);
-                        break;
+            if (cheese > cost + 50) {
+                boolean spawned = false;
+                // Try all 8 directions at distance 2, 3, and 4
+                for (int dist = 2; dist <= 4 && !spawned; dist++) {
+                    for (Direction dir : directions) {
+                        MapLocation loc = me;
+                        for (int i = 0; i < dist; i++) {
+                            loc = loc.add(dir);
+                        }
+                        if (rc.canBuildRat(loc)) {
+                            int role = (spawnCount < 8) ? 0 : 1; // 0=ATK, 1=COL
+                            rc.buildRat(loc);
+                            rc.writeSharedArray(4 + spawnCount, role);
+                            spawnCount++;
+                            System.out.println("SPAWN:" + round + ":rat#" + spawnCount + " dist=" + dist);
+                            spawned = true;
+                            break;
+                        }
                     }
+                }
+                if (!spawned && round % 10 == 0) {
+                    System.out.println("SPAWN_BLOCKED:" + round + ":all locations occupied, need=" + spawnCount);
                 }
             }
         }
@@ -89,8 +100,9 @@ public class RobotPlayer {
             }
         }
 
-        // Place rat traps (hidden 50 damage traps!)
-        if (trapCount < 10 && cheese > 100) {
+        // Place rat traps after spawning (hidden 50 damage!)
+        // Spawn only reaches 11 (spawn locations occupied), so trigger at 11
+        if (spawnCount >= 11 && trapCount < 10 && cheese > 50) {
             for (Direction dir : directions) {
                 MapLocation loc = me.add(dir).add(dir);
                 if (rc.canPlaceRatTrap(loc)) {
