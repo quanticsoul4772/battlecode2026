@@ -256,6 +256,7 @@ public class RobotPlayer {
     private static void move(RobotController rc, MapLocation target) throws GameActionException {
         MapLocation me = rc.getLocation();
         int id = rc.getID();
+        int round = rc.getRoundNum();
 
         // Stuck detection (per-rat state)
         MapLocation lastPos = ratLastPos.get(id);
@@ -270,46 +271,48 @@ public class RobotPlayer {
         ratLastPos.put(id, me);
         ratStuckCount.put(id, stuckCount);
 
-        // Use Bug2 when stuck (after 2 rounds, not 3)
-        if (stuckCount >= 2) {
-            Direction bug2Dir = bug2(me, target, (d) -> rc.canMove(d));
-            if (rc.getRoundNum() % 50 == 0) {
-                System.out.println("BUG2:" + rc.getRoundNum() + ":" + rc.getID() + ":stuck=" + stuckCount + " result=" + bug2Dir);
-            }
-            if (bug2Dir != Direction.CENTER && rc.canMove(bug2Dir)) {
-                rc.move(bug2Dir);
-                return;
-            }
+        if (stuckCount >= 2 && round % 50 == 0) {
+            System.out.println("STUCK:" + round + ":" + id + ":count=" + stuckCount + " pos=" + me);
         }
 
-        // Greedy movement
+        // Movement: Use turn+forward to avoid strafe penalty
         Direction desired = me.directionTo(target);
-        if (rc.canMove(desired)) {
-            rc.move(desired);
+        Direction facing = rc.getDirection();
+
+        // Turn to face target
+        if (facing != desired && rc.canTurn()) {
+            rc.turn(desired);
             return;
         }
 
-        // Blocked - try perpendicular (likely around obstacle)
-        Direction[] alternate = {
-            rotateLeft(desired),
-            rotateRight(desired),
-            rotateLeft(rotateLeft(desired)),
-            rotateRight(rotateRight(desired))
-        };
+        // Remove dirt if blocking
+        MapLocation ahead = rc.adjacentLocation(facing);
+        if (rc.canRemoveDirt(ahead)) {
+            rc.removeDirt(ahead);
+            return;
+        }
 
-        for (Direction d : alternate) {
+        // Move forward (10 cd, not 18 strafe penalty)
+        if (rc.canMoveForward()) {
+            rc.moveForward();
+            return;
+        }
+
+        // Blocked - try turning to any open direction
+        for (Direction d : directions) {
             if (rc.canMove(d)) {
-                rc.move(d);
-                return;
+                if (rc.getDirection() == d && rc.canMoveForward()) {
+                    rc.moveForward();
+                    return;
+                } else if (rc.canTurn()) {
+                    rc.turn(d);
+                    return;
+                }
             }
         }
 
-        // Still blocked - try ANY direction
-        for (Direction d : directions) {
-            if (rc.canMove(d)) {
-                rc.move(d);
-                return;
-            }
+        if (round % 50 == 0) {
+            System.out.println("BLOCKED:" + round + ":" + id + ":completely stuck");
         }
     }
 
