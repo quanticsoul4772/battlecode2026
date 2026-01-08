@@ -255,9 +255,31 @@ public class RobotPlayer {
     }
 
     // === MOVEMENT ===
-    private static void move(RobotController rc, MapLocation target) throws GameActionException {
-        Direction desired = rc.getLocation().directionTo(target);
+    private static MapLocation lastPos = null;
+    private static int stuckCount = 0;
 
+    private static void move(RobotController rc, MapLocation target) throws GameActionException {
+        MapLocation me = rc.getLocation();
+
+        // Stuck detection
+        if (me.equals(lastPos)) {
+            stuckCount++;
+        } else {
+            stuckCount = 0;
+            lastPos = me;
+        }
+
+        // Use Bug2 when stuck
+        if (stuckCount >= 3) {
+            Direction bug2Dir = bug2(me, target, (d) -> rc.canMove(d));
+            if (bug2Dir != Direction.CENTER && rc.canMove(bug2Dir)) {
+                rc.move(bug2Dir);
+                return;
+            }
+        }
+
+        // Greedy movement
+        Direction desired = me.directionTo(target);
         if (rc.canMove(desired)) {
             rc.move(desired);
         } else if (rc.canTurn() && rc.getDirection() != desired) {
@@ -270,6 +292,74 @@ public class RobotPlayer {
                 }
             }
         }
+    }
+
+    // === BUG2 PATHFINDING ===
+    private static MapLocation bugTarget = null;
+    private static boolean bugTracing = false;
+    private static Direction bugTracingDir = Direction.NORTH;
+    private static int bugTurns = 0;
+
+    private static Direction bug2(MapLocation current, MapLocation target, CanMoveFunction canMove) {
+        // Reset if target changed
+        if (bugTarget == null || !bugTarget.equals(target)) {
+            bugTarget = target;
+            bugTracing = false;
+        }
+
+        Direction targetDir = current.directionTo(target);
+
+        // Try direct path
+        if (!bugTracing) {
+            if (canMove.canMove(targetDir)) {
+                return targetDir;
+            }
+            // Start tracing
+            bugTracing = true;
+            bugTracingDir = targetDir;
+            bugTurns = 0;
+        }
+
+        // Trace obstacle
+        if (bugTracing) {
+            bugTurns++;
+            if (bugTurns > 20 || current.distanceSquaredTo(target) < 10) {
+                bugTracing = false;
+                return targetDir;
+            }
+
+            // Try moving along obstacle
+            for (int i = 0; i < 8; i++) {
+                if (canMove.canMove(bugTracingDir)) {
+                    Direction next = rotateRight(bugTracingDir);
+                    bugTracingDir = next;
+                    return bugTracingDir;
+                }
+                bugTracingDir = rotateLeft(bugTracingDir);
+            }
+        }
+
+        return targetDir;
+    }
+
+    interface CanMoveFunction {
+        boolean canMove(Direction dir);
+    }
+
+    private static Direction rotateLeft(Direction d) {
+        int idx = 0;
+        for (int i = 0; i < 8; i++) {
+            if (directions[i] == d) { idx = i; break; }
+        }
+        return directions[(idx + 7) % 8];
+    }
+
+    private static Direction rotateRight(Direction d) {
+        int idx = 0;
+        for (int i = 0; i < 8; i++) {
+            if (directions[i] == d) { idx = i; break; }
+        }
+        return directions[(idx + 1) % 8];
     }
 
     private static final Direction[] directions = {
