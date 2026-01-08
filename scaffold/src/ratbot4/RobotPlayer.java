@@ -125,19 +125,34 @@ public class RobotPlayer {
         // JAVA LEARNING: Conditional logic (if/else)
         // First condition checked (spawnCount < 12) takes priority
         // "else if" only executes if first condition is false
+        // ==================== SPAWN DEBUGGING ====================
+        if (round % 10 == 0) {
+            System.out.println("KING:" + round + ":cheese=" + cheese + " spawned=" + spawnCount);
+        }
+
         if (spawnCount < 12) {
-            int cost = rc.getCurrentRatCost(); // API call: gets current spawn cost
-            // Keep 100 cheese reserve for king survival (100 cheese = 33 rounds @ 3/round)
-            if (cheese > cost + 100) {
-                spawnRat(rc); // Helper function (defined below) handles spawn logic
-            }
-        } else if (round % 50 == 0 && spawnCount < 20) {
-            // JAVA LEARNING: Modulo operator (%)
-            // round % 50 == 0 means: round is divisible by 50 (rounds 50, 100, 150, etc.)
-            // This creates periodic behavior (every 50 rounds)
             int cost = rc.getCurrentRatCost();
+            if (round % 10 == 0) {
+                System.out.println("SPAWN_CHECK:" + round + ":phase=INITIAL need=" + (12 - spawnCount) + " cost=" + cost + " have=" + cheese);
+            }
+
             if (cheese > cost + 100) {
                 spawnRat(rc);
+                System.out.println("SPAWN:" + round + ":rat#" + spawnCount);
+            } else {
+                if (round % 10 == 0) {
+                    System.out.println("SPAWN_SKIP:" + round + ":NOT_ENOUGH_CHEESE need=" + (cost + 100) + " have=" + cheese);
+                }
+            }
+        } else if (round % 50 == 0 && spawnCount < 20) {
+            int cost = rc.getCurrentRatCost();
+            System.out.println("SPAWN_CHECK:" + round + ":phase=REPLACEMENT count=" + spawnCount + " cost=" + cost + " have=" + cheese);
+
+            if (cheese > cost + 100) {
+                spawnRat(rc);
+                System.out.println("SPAWN:" + round + ":REPLACEMENT rat#" + spawnCount);
+            } else {
+                System.out.println("SPAWN_SKIP:" + round + ":REPLACEMENT NOT_ENOUGH_CHEESE need=" + (cost + 100) + " have=" + cheese);
             }
         }
 
