@@ -119,10 +119,17 @@ public class RobotPlayer {
     private static int myRole = -1;
 
     private static void runBabyRat(RobotController rc) throws GameActionException {
-        // Simple role: even ID = ATK, odd ID = COL (no shared array needed!)
+        int round = rc.getRoundNum();
+        int id = rc.getID();
+
+        // Simple role: even ID = ATK, odd ID = COL
         if (myRole == -1) {
-            myRole = (rc.getID() % 2 == 0) ? 0 : 1;
-            System.out.println("ROLE:" + rc.getRoundNum() + ":" + rc.getID() + ":" + (myRole == 0 ? "ATK" : "COL"));
+            myRole = (id % 2 == 0) ? 0 : 1;
+            System.out.println("ROLE:" + round + ":" + id + ":" + (myRole == 0 ? "ATK" : "COL"));
+        }
+
+        if (round % 50 == 0) {
+            System.out.println("TICK:" + round + ":" + id + ":" + (myRole == 0 ? "ATK" : "COL") + " pos=" + rc.getLocation());
         }
 
         if (myRole == 0) {
@@ -307,9 +314,12 @@ public class RobotPlayer {
             lastPos = me;
         }
 
-        // Use Bug2 when stuck
-        if (stuckCount >= 3) {
+        // Use Bug2 when stuck (after 2 rounds, not 3)
+        if (stuckCount >= 2) {
             Direction bug2Dir = bug2(me, target, (d) -> rc.canMove(d));
+            if (rc.getRoundNum() % 50 == 0) {
+                System.out.println("BUG2:" + rc.getRoundNum() + ":" + rc.getID() + ":stuck=" + stuckCount + " result=" + bug2Dir);
+            }
             if (bug2Dir != Direction.CENTER && rc.canMove(bug2Dir)) {
                 rc.move(bug2Dir);
                 return;
@@ -320,14 +330,29 @@ public class RobotPlayer {
         Direction desired = me.directionTo(target);
         if (rc.canMove(desired)) {
             rc.move(desired);
-        } else if (rc.canTurn() && rc.getDirection() != desired) {
-            rc.turn(desired);
-        } else {
-            for (Direction d : directions) {
-                if (rc.canMove(d)) {
-                    rc.move(d);
-                    return;
-                }
+            return;
+        }
+
+        // Blocked - try perpendicular (likely around obstacle)
+        Direction[] alternate = {
+            rotateLeft(desired),
+            rotateRight(desired),
+            rotateLeft(rotateLeft(desired)),
+            rotateRight(rotateRight(desired))
+        };
+
+        for (Direction d : alternate) {
+            if (rc.canMove(d)) {
+                rc.move(d);
+                return;
+            }
+        }
+
+        // Still blocked - try ANY direction
+        for (Direction d : directions) {
+            if (rc.canMove(d)) {
+                rc.move(d);
+                return;
             }
         }
     }
