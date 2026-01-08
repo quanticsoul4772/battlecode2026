@@ -231,6 +231,9 @@ public class RobotPlayer {
         }
 
         // Periodic status logging
+        // VISUAL DEBUGGING: Show role above rat in client
+        rc.setIndicatorString((myRole == 0 ? "ATK" : "COL"));
+
         if (round % 10 == 0) {
             System.out.println("RAT:" + round + ":" + id + ":pos=" + me + " role=" + (myRole == 0 ? "ATK" : "COL"));
         }
@@ -362,6 +365,9 @@ public class RobotPlayer {
 
     private static void collect(RobotController rc) throws GameActionException {
         MapLocation me = rc.getLocation();
+
+        // VISUAL DEBUG: Show collector status
+        rc.setIndicatorString("COL cheese:" + rc.getRawCheese());
 
         // FIND NEAREST CHEESE
         // Scan vision radius (20 tiles squared ≈ 4.5 tiles)
