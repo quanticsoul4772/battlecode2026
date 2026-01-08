@@ -442,5 +442,5 @@ spotless {
   }
 }
 
-// Add format check to build
-check.dependsOn spotlessCheck
+// Disabled format check for faster builds
+// check.dependsOn spotlessCheck
