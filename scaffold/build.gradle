@@ -1,7 +1,13 @@
 //////// General configuration ////////
 
+plugins {
+  id 'com.diffplug.spotless' version '6.23.3'
+}
+
 apply plugin: 'java'
 apply plugin: 'scala'
+apply plugin: 'checkstyle'
+apply plugin: 'jacoco'
 
 // Compatibility version: Java 21
 java {
@@ -215,6 +221,9 @@ dependencies {
   // Scala
   implementation group: 'org.scala-lang', name: 'scala-library', version: '2.13.11'
   testImplementation group: 'org.scalatest', name: 'scalatest_2.13', version: '3.2.9'
+
+  // Code quality tools
+  checkstyle 'com.puppycrawl.tools:checkstyle:10.12.7'
 }
 
 
@@ -364,3 +373,63 @@ task zipForSubmit(type: Zip) {
   destinationDirectory = project.projectDir
   from sourceSets.main.allSource
 }
+
+
+//////// Code Quality ////////
+
+// Checkstyle configuration
+checkstyle {
+  toolVersion = '10.12.7'
+  configFile = file("${project.rootDir}/checkstyle.xml")
+  ignoreFailures = false
+  maxWarnings = 0
+}
+
+checkstyleMain {
+  source = 'src'
+}
+
+checkstyleTest {
+  source = 'test'
+}
+
+// JaCoCo test coverage
+jacoco {
+  toolVersion = "0.8.11"
+}
+
+jacocoTestReport {
+  reports {
+    xml.required = true
+    html.required = true
+  }
+}
+
+test.finalizedBy jacocoTestReport
+
+// Enforce minimum coverage thresholds
+jacocoTestCoverageVerification {
+  violationRules {
+    rule {
+      limit {
+        minimum = 0.60
+      }
+    }
+  }
+}
+
+check.dependsOn jacocoTestCoverageVerification
+
+// Spotless - Google Java Format
+spotless {
+  java {
+    target 'src/**/*.java', 'test/**/*.java'
+    googleJavaFormat('1.19.1')
+    removeUnusedImports()
+    trimTrailingWhitespace()
+    endWithNewline()
+  }
+}
+
+// Add format check to build
+check.dependsOn spotlessCheck
