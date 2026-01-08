@@ -174,3 +174,7 @@ local_config.properties
 
 # Claude plan files (auto-generated)
 .claude/plans/
+
+# MCP Server files (contain API keys)
+.mcp.json
+data/
