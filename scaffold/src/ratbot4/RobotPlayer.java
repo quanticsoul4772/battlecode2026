@@ -150,41 +150,22 @@ public class RobotPlayer {
 
         RobotInfo[] enemies = rc.senseNearbyRobots(-1, rc.getTeam().opponent());
 
-        if (round % 50 == 0) {
-            System.out.println("ATK_A:" + round + ":" + id + ":enemies=" + enemies.length);
-        }
-
-        // Attack adjacent ENEMIES only
-        for (RobotInfo enemy : enemies) {
-            MapLocation enemyLoc = enemy.getLocation();
-            if (me.distanceSquaredTo(enemyLoc) <= 2 && rc.canAttack(enemyLoc)) {
-                rc.attack(enemyLoc);
-                if (round % 50 == 0) {
-                    System.out.println("ATK_B:" + round + ":" + id + ":attacked enemy");
+        // Attack ALL adjacent tiles with CHEESE-ENHANCED ATTACKS
+        for (Direction dir : directions) {
+            MapLocation loc = me.add(dir);
+            if (rc.canAttack(loc)) {
+                int globalCheese = rc.getGlobalCheese();
+                // Use 8 cheese for 13 damage (kill in 8 hits vs 10)
+                if (globalCheese > 500 && rc.canAttack(loc, 8)) {
+                    rc.attack(loc, 8);
+                } else {
+                    rc.attack(loc);
                 }
                 return;
             }
         }
 
-        // Chase enemies
-        if (enemies.length > 0) {
-            if (round % 50 == 0) {
-                System.out.println("ATK_C:" + round + ":" + id + ":chasing");
-            }
-            RobotInfo closest = enemies[0];
-            for (RobotInfo e : enemies) {
-                if (me.distanceSquaredTo(e.getLocation()) < me.distanceSquaredTo(closest.getLocation())) {
-                    closest = e;
-                }
-            }
-            move(rc, closest.getLocation());
-            return;
-        }
-
-        // Rush enemy king
-        if (round % 50 == 0) {
-            System.out.println("ATK_D:" + round + ":" + id + ":rushing king");
-        }
+        // RUSH ENEMY KING - go straight there!
         MapLocation enemyKing = new MapLocation(rc.readSharedArray(2), rc.readSharedArray(3));
         move(rc, enemyKing);
     }
