@@ -37,6 +37,11 @@ public class RobotPlayer {
         rc.writeSharedArray(1, me.y);
         rc.writeSharedArray(29, rc.getHealth());
 
+        // Debug spawning
+        if (round % 50 == 0) {
+            System.out.println("KING:" + round + ":cheese=" + cheese + ":spawned=" + spawnCount);
+        }
+
         // Calculate enemy king (round 1)
         if (round == 1) {
             int enemyX = rc.getMapWidth() - 1 - me.x;
@@ -56,37 +61,28 @@ public class RobotPlayer {
                         rc.buildRat(loc);
                         rc.writeSharedArray(4 + spawnCount, role);
                         spawnCount++;
+                        System.out.println("SPAWN:" + round + ":rat#" + spawnCount);
                         break;
                     }
                 }
             }
         }
 
-        // Fast replacement
-        if (spawnCount >= 12 && spawnCount < 20) {
-            RobotInfo[] team = rc.senseNearbyRobots(-1, rc.getTeam());
-            int visATK = 0, visCOL = 0;
-            for (RobotInfo r : team) {
-                if (r.getType() == UnitType.BABY_RAT) {
-                    int rNum = (r.getID() % 20);
-                    int rRole = rc.readSharedArray(4 + rNum);
-                    if (rRole == 0) visATK++;
-                    else visCOL++;
-                }
-            }
-
-            if (visCOL < 3 || visATK < 6) {
-                int cost = rc.getCurrentRatCost();
-                if (cheese > cost + 200) {
-                    for (Direction dir : directions) {
-                        MapLocation loc = me.add(dir).add(dir);
-                        if (rc.canBuildRat(loc)) {
-                            int role = (visCOL < 3) ? 1 : 0;
-                            rc.buildRat(loc);
-                            rc.writeSharedArray(4 + spawnCount, role);
-                            spawnCount++;
-                            break;
-                        }
+        // Slow replacement (time-based, not visibility-based)
+        // Spawn 1 rat every 50 rounds to replace attrition
+        if (spawnCount >= 12 && spawnCount < 20 && round % 50 == 0) {
+            int cost = rc.getCurrentRatCost();
+            if (cheese > cost + 200) {
+                for (Direction dir : directions) {
+                    MapLocation loc = me.add(dir).add(dir);
+                    if (rc.canBuildRat(loc)) {
+                        // Alternate roles for replacement
+                        int role = (spawnCount % 2 == 0) ? 0 : 1;
+                        rc.buildRat(loc);
+                        rc.writeSharedArray(4 + spawnCount, role);
+                        spawnCount++;
+                        System.out.println("REPLACEMENT:" + round + ":spawned #" + spawnCount);
+                        break;
                     }
                 }
             }
