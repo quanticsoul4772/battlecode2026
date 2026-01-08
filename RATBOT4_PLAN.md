@@ -145,7 +145,6 @@ Reserve needed: 1,000 minimum
 - **Combat**:
   - Cheese-enhanced IF: globalCheese > 500 AND enemy HP < 30
   - Otherwise: base attack (10 damage)
-- **FLEE**: Never (attackers fight until death)
 
 **Ratnapping Strategy**:
 ```java
@@ -472,10 +471,9 @@ if (myRole == -1) {
 
 ### Movement Decision Tree:
 ```
-1. Check if enemy nearby → FLEE (collectors only)
-2. Check if stuck > 3 rounds → Use Bug2
-3. Check if distance > 30 tiles → Use Bug2
-4. Else → Use greedy movement
+1. Check if stuck > 3 rounds → Use Bug2
+2. Check if distance > 30 tiles → Use Bug2
+3. Else → Use greedy movement
 ```
 
 ### Bug2 Integration:
