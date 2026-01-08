@@ -133,13 +133,37 @@ Reserve needed: 500 minimum
 **ATTACKER** (8 rats - spawn numbers 0-7):
 - **Job**: Kill enemy rats, defend our territory
 - **Behavior**:
-  1. Attack enemy rats in vision (priority: lowest HP first)
-  2. Guard near our king (within 20 tiles)
-  3. Hunt enemies if none near king
+  1. **RATNAP**: If enemy HP < 50 and adjacent, grab and throw toward our king
+  2. **ATTACK**: Enemy rats in vision (priority: lowest HP first)
+  3. **CLEAR TRAPS**: Remove enemy traps blocking paths
+  4. **GUARD**: Stay near our king (within 20 tiles)
+  5. **HUNT**: Search enemy territory if area secure
 - **Combat**:
   - Cheese-enhanced IF: globalCheese > 500 AND enemy HP < 30
   - Otherwise: base attack (10 damage)
 - **FLEE**: Never (attackers fight until death)
+
+**Ratnapping Strategy**:
+```java
+RobotInfo[] enemies = rc.senseNearbyRobots(2, opponent);
+for (RobotInfo enemy : enemies) {
+    if (enemy.getHealth() < 50 && rc.canCarryRat(enemy.getLocation())) {
+        rc.carryRat(enemy.getLocation());
+        // Next rounds: throw toward our king or toward cat
+        if (rc.canThrowRat()) {
+            // Turn toward our king
+            MapLocation kingLoc = read from shared array;
+            Direction toKing = me.directionTo(kingLoc);
+            if (rc.getDirection() != toKing && rc.canTurn()) {
+                rc.turn(toKing);
+            } else if (rc.canThrowRat()) {
+                rc.throwRat(); // Yeet enemy toward our king to die from fall damage
+            }
+        }
+        return;
+    }
+}
+```
 
 **COLLECTOR** (4 rats minimum - spawn numbers 8-11+):
 - **Job**: Feed king, prevent starvation
@@ -193,10 +217,9 @@ myRole = rc.readSharedArray(4 + mySpawnNumber);
 
 **Priority 1: EMERGENCY KING DELIVERY**
 ```java
-int kingHP = rc.readSharedArray(29); // King writes HP to slot 29
+int kingHP = rc.readSharedArray(29);
 if (kingHP < 100 && rc.getRawCheese() > 0) {
-    // King critical - deliver now!
-    MapLocation kingLoc = read from shared array (slots 0-1);
+    MapLocation kingLoc = new MapLocation(rc.readSharedArray(0), rc.readSharedArray(1));
     if (distToKing <= 9 && rc.canTransferCheese(kingLoc, cheese)) {
         rc.transferCheese(kingLoc, cheese);
         return;
@@ -208,31 +231,45 @@ if (kingHP < 100 && rc.getRawCheese() > 0) {
 
 **Priority 2: DEFEND YOURSELF**
 ```java
-RobotInfo[] enemies = rc.senseNearbyRobots(2, opponent); // Adjacent only
+RobotInfo[] enemies = rc.senseNearbyRobots(2, opponent);
 for (RobotInfo enemy : enemies) {
     if (rc.canAttack(enemy.getLocation())) {
-        rc.attack(enemy.getLocation()); // Fight back!
+        rc.attack(enemy.getLocation());
         return;
     }
 }
 ```
 
-**Priority 3: DELIVER**
+**Priority 3: CLEAR TRAPS**
 ```java
-if (rc.getRawCheese() >= 10) {
-    deliver to king;
+// Remove enemy traps blocking path to cheese or king
+Direction facing = rc.getDirection();
+MapLocation ahead = rc.adjacentLocation(facing);
+if (rc.canRemoveRatTrap(ahead)) {
+    rc.removeRatTrap(ahead); // Clear path
+    return;
+}
+if (rc.canRemoveCatTrap(ahead)) {
+    rc.removeCatTrap(ahead); // Clear path
     return;
 }
 ```
 
-**Priority 4: COLLECT**
+**Priority 4: DELIVER**
+```java
+if (rc.getRawCheese() >= 10) {
+    deliver to king;
+}
+```
+
+**Priority 5: COLLECT**
 ```java
 Find nearest cheese;
 Move toward it;
 Pick up if adjacent;
 ```
 
-**Collectors fight when attacked** - no fleeing, we replace losses
+**Collectors fight and clear paths** - no fleeing, aggressive replacement
 
 ### Combat Behavior (CRITICAL - Must Match Enemy):
 
@@ -279,6 +316,46 @@ if (rc.canAttack(enemyLoc)) {
 
 **Focus Fire**: Attack lowest HP enemy when multiple visible
 
+**King Attack Fix** (Using multi-part distance):
+```java
+// When attacking enemy king, check ALL king tiles (3x3)
+if (enemy.getType() == UnitType.RAT_KING) {
+    MapLocation kingCenter = enemy.getLocation();
+
+    // Try attacking each of the 9 king tiles
+    for (int dx = -1; dx <= 1; dx++) {
+        for (int dy = -1; dy <= 1; dy++) {
+            MapLocation tile = new MapLocation(kingCenter.x + dx, kingCenter.y + dy);
+            if (rc.canAttack(tile)) {
+                // Turn to face tile if needed
+                Direction toTile = me.directionTo(tile);
+                if (rc.getDirection() != toTile && rc.canTurn()) {
+                    rc.turn(toTile);
+                    return;
+                }
+                // Attack the tile
+                rc.attack(tile);
+                return;
+            }
+        }
+    }
+}
+```
+
+**Trap Removal** (Clear paths):
+```java
+// Before collecting or delivering, remove enemy traps in path
+MapLocation nextLoc = me.add(facingDirection);
+if (rc.canRemoveRatTrap(nextLoc)) {
+    rc.removeRatTrap(nextLoc); // Clear enemy trap
+    return;
+}
+if (rc.canRemoveCatTrap(nextLoc)) {
+    rc.removeCatTrap(nextLoc); // Clear enemy trap
+    return;
+}
+```
+
 ### Communication Protocol:
 
 **Shared array slots**:
@@ -305,16 +382,17 @@ if (rc.canAttack(enemyLoc)) {
 
 ### File Structure:
 ```
-ratbot4/RobotPlayer.java (~500 lines)
+ratbot4/RobotPlayer.java (~600 lines)
 ├── run() - main loop
 ├── runKing() - spawn, trap, track enemies
 ├── runBabyRat() - role dispatch
-├── runDefender() - protect king area
-├── runAttacker() - hunt enemies
-├── runCollector() - feed king, flee danger
+├── runAttacker() - hunt enemies, ratnap, clear traps
+├── runCollector() - feed king, defend, clear traps
 ├── move(target) - greedy movement
-├── moveWithBug2(target) - obstacle navigation
-└── bug2() - Bug2 pathfinding
+├── moveWithBug2(target) - obstacle navigation with Bug2
+├── bug2(current, target, canMove) - Bug2 pathfinding
+├── ratnap() - grab and throw enemy rats
+└── clearTraps() - remove enemy traps from path
 ```
 
 ### Spawning Logic:
