@@ -155,9 +155,25 @@ public class RobotPlayer {
             }
         }
 
-        // No enemies - search enemy king area
-        MapLocation enemyKing = new MapLocation(rc.readSharedArray(2), rc.readSharedArray(3));
-        move(rc, enemyKing);
+        // No enemies - spread out and search (don't all cluster at enemy king!)
+        int myNum = rc.getID() % 8; // Attackers 0-7
+        int mapW = rc.getMapWidth();
+        int mapH = rc.getMapHeight();
+
+        // Assign search zones to avoid clustering
+        MapLocation searchTarget;
+        switch (myNum) {
+            case 0: searchTarget = new MapLocation(mapW / 4, mapH / 4); break; // NW
+            case 1: searchTarget = new MapLocation(3 * mapW / 4, mapH / 4); break; // NE
+            case 2: searchTarget = new MapLocation(3 * mapW / 4, 3 * mapH / 4); break; // SE
+            case 3: searchTarget = new MapLocation(mapW / 4, 3 * mapH / 4); break; // SW
+            case 4: searchTarget = new MapLocation(mapW / 2, mapH / 4); break; // N
+            case 5: searchTarget = new MapLocation(3 * mapW / 4, mapH / 2); break; // E
+            case 6: searchTarget = new MapLocation(mapW / 2, 3 * mapH / 4); break; // S
+            default: searchTarget = new MapLocation(mapW / 4, mapH / 2); break; // W
+        }
+
+        move(rc, searchTarget);
     }
 
     private static void runCollector(RobotController rc) throws GameActionException {
