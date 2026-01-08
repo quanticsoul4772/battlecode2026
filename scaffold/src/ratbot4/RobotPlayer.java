@@ -26,6 +26,7 @@ public class RobotPlayer {
 
     // === KING ===
     private static int spawnCount = 0;
+    private static int trapCount = 0;
 
     private static void runKing(RobotController rc) throws GameActionException {
         int round = rc.getRoundNum();
@@ -87,6 +88,19 @@ public class RobotPlayer {
                 }
             }
         }
+
+        // Place rat traps (hidden 50 damage traps!)
+        if (trapCount < 10 && cheese > 100) {
+            for (Direction dir : directions) {
+                MapLocation loc = me.add(dir).add(dir);
+                if (rc.canPlaceRatTrap(loc)) {
+                    rc.placeRatTrap(loc);
+                    trapCount++;
+                    System.out.println("TRAP:" + round + ":placed #" + trapCount);
+                    return;
+                }
+            }
+        }
     }
 
     // === BABY RATS ===
@@ -132,32 +146,34 @@ public class RobotPlayer {
             return;
         }
 
-        // Attack enemies (baby rats AND king!)
+        // Attack ALL adjacent tiles (like lectureplayer does!)
+        boolean attacked = false;
+        for (Direction dir : directions) {
+            MapLocation loc = me.add(dir);
+            if (rc.canAttack(loc)) {
+                // Use cheese-enhanced attacks when we have surplus
+                int globalCheese = rc.getGlobalCheese();
+                if (globalCheese > 500 && rc.canAttack(loc, 8)) {
+                    rc.attack(loc, 8); // 13 damage
+                    attacked = true;
+                } else if (!attacked) { // Only one basic attack per turn
+                    rc.attack(loc); // 10 damage
+                    attacked = true;
+                }
+            }
+        }
+
+        if (attacked) {
+            return; // Attacked something, done for this round
+        }
+
+        // No attacks landed - check what's nearby for debugging
         for (RobotInfo enemy : enemies) {
             MapLocation enemyLoc = enemy.getLocation();
             int dist = me.distanceSquaredTo(enemyLoc);
 
-            // Debug attack attempts
             if (dist <= 10) {
-                System.out.println("ENEMY_NEAR:" + rc.getRoundNum() + ":" + rc.getID() + ":dist=" + dist + " canAttack=" + rc.canAttack(enemyLoc) + " HP=" + enemy.getHealth());
-            }
-
-            // Attack if we can
-            if (rc.canAttack(enemyLoc)) {
-                // Use cheese-enhanced attacks (spec says raw first, then global)
-                int globalCheese = rc.getGlobalCheese();
-                if (globalCheese > 500) {
-                    // Try enhanced attack (uses global cheese if we don't have raw)
-                    if (rc.canAttack(enemyLoc, 8)) {
-                        rc.attack(enemyLoc, 8); // 13 damage!
-                        System.out.println("ATTACK_ENHANCED:" + rc.getRoundNum() + ":" + rc.getID() + ":13dmg");
-                        return;
-                    }
-                }
-                // Fallback to basic attack
-                rc.attack(enemyLoc);
-                System.out.println("ATTACK_BASIC:" + rc.getRoundNum() + ":" + rc.getID() + ":10dmg");
-                return;
+                System.out.println("ENEMY_NEAR:" + rc.getRoundNum() + ":dist=" + dist + " HP=" + enemy.getHealth());
             }
 
             // If it's a king and we're close, try attacking individual tiles (3x3)
