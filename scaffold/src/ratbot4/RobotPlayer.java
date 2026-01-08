@@ -465,11 +465,20 @@ public class RobotPlayer {
             lastPosition = me;
         }
 
-        // STUCK RECOVERY: After 2 rounds in same position, escape aggressively
+        // ==================== STUCK RECOVERY ====================
+        // After 2 rounds in same position, escape aggressively
+        //
+        // STRATEGY: If not making progress, try different approach
+        // Perpendicular directions often less congested than straight ahead
+        //
+        // TUNABLE:
+        // - stuckRounds >= 2: How patient to be (1 = aggressive, 3 = patient)
         if (stuckRounds >= 2) {
             System.out.println("STUCK:" + round + ":" + id + ":rounds=" + stuckRounds + " pos=" + me);
 
-            // Try perpendicular directions first (likely less congested)
+            // JAVA LEARNING: Array initialization
+            // Create array of directions to try in specific order
+            // Try perpendicular first (likely less congested)
             Direction[] escapeOrder = {
                 rotateLeft(desired), rotateRight(desired),
                 rotateLeft(rotateLeft(desired)), rotateRight(rotateRight(desired)),
@@ -491,12 +500,23 @@ public class RobotPlayer {
             return; // Completely blocked, wait for next round
         }
 
-        // TRAFFIC MANAGEMENT: If surrounded by 4+ friendlies, take turns moving
+    // ==================== TRAFFIC MANAGEMENT ====================
+        // If surrounded by 4+ friendlies, take turns moving
         // This prevents all rats pushing into same space
+        //
+        // STRATEGY: Round-robin turn-taking to reduce congestion
+        // Each rat gets 1 out of every 10 rounds to move when crowded
+        //
+        // TUNABLE:
+        // - friendlies.length >= 4: Crowding threshold (3 = more yielding, 5 = less)
+        // - round % 10: Slot count (% 5 = faster turns, % 20 = slower)
+        //
+        // JAVA LEARNING: .length property
+        // Arrays in Java have .length property (not a method, no parentheses)
         RobotInfo[] friendlies = rc.senseNearbyRobots(2, rc.getTeam());
         if (friendlies.length >= 4) {
-            int yieldSlot = round % 10;
-            int mySlot = id % 10;
+            int yieldSlot = round % 10;  // Which slot is active this round (0-9)
+            int mySlot = id % 10;         // Which slot this rat owns (based on ID)
             if (mySlot != yieldSlot) {
                 return; // Not my turn, wait
             }
