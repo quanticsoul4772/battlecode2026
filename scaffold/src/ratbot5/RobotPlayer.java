@@ -112,12 +112,18 @@ public class RobotPlayer {
   }
 
   private static void spawnRat(RobotController rc) throws GameActionException {
+    // Try distance 2, then 3, then 4 to find open spots
     for (Direction dir : Direction.allDirections()) {
-      MapLocation loc = rc.getLocation().add(dir).add(dir);
-      if (rc.canBuildRat(loc)) {
-        rc.buildRat(loc);
-        spawnCount++;
-        return;
+      for (int dist = 2; dist <= 4; dist++) {
+        MapLocation loc = rc.getLocation();
+        for (int i = 0; i < dist; i++) {
+          loc = loc.add(dir);
+        }
+        if (rc.canBuildRat(loc)) {
+          rc.buildRat(loc);
+          spawnCount++;
+          return;
+        }
       }
     }
   }
