@@ -119,9 +119,27 @@ public class RobotPlayer {
   private static int myRole = -1;
 
   private static void runBabyRat(RobotController rc) throws GameActionException {
+    int round = rc.getRoundNum();
+    int id = rc.getID();
+
     // Assign role once
     if (myRole == -1) {
       myRole = rc.getID() % 2; // 0=attacker, 1=collector
+    }
+
+    // DEBUG: Show what we're doing
+    if (round % 50 == 0) {
+      System.out.println(
+          "RAT:"
+              + round
+              + ":"
+              + id
+              + ":role="
+              + (myRole == 0 ? "ATK" : "COL")
+              + " moveCd="
+              + rc.getMovementCooldownTurns()
+              + " actionCd="
+              + rc.getActionCooldownTurns());
     }
 
     if (myRole == 0) {
@@ -136,11 +154,21 @@ public class RobotPlayer {
   // ================================================================
 
   private static void runAttacker(RobotController rc) throws GameActionException {
-    if (!rc.isActionReady()) return;
+    if (!rc.isActionReady()) {
+      if (rc.getRoundNum() % 50 == 0) {
+        System.out.println("ATK_SKIP:" + rc.getRoundNum() + ":" + rc.getID() + ":NOT_READY");
+      }
+      return;
+    }
 
     MapLocation me = rc.getLocation();
     int visionRange = rc.getType().getVisionRadiusSquared();
     RobotInfo[] enemies = rc.senseNearbyRobots(visionRange, rc.getTeam().opponent());
+
+    if (rc.getRoundNum() % 50 == 0) {
+      System.out.println(
+          "ATK:" + rc.getRoundNum() + ":" + rc.getID() + ":enemies=" + enemies.length);
+    }
 
     // Find best target (most cheese)
     RobotInfo bestTarget = null;
