@@ -75,14 +75,16 @@ public class RobotPlayer {
   // These variables persist across all function calls for this king
   // They're NOT shared between different robots - each king has its own copy
 
-  private static int spawnCount = 0; // TUNABLE: How many rats we've spawned (tracks progress)
-  private static int trapCount = 0; // TUNABLE: How many cat traps we've placed
+  private static int spawnCount = 0;
+  private static int trapCount = 0;
 
   private static void runKing(RobotController rc) throws GameActionException {
-    // OPTIMIZATION: Cache API calls (50 bytecode each)
     int round = rc.getRoundNum();
     int cheese = rc.getGlobalCheese();
     MapLocation me = rc.getLocation();
+
+    // PHASE 1: Use GameConstants (king consumes 3 cheese per round)
+    int cheeseReserve = 100; // 33 rounds survival buffer
 
     // SHARED ARRAY COMMUNICATION
     rc.writeSharedArray(0, me.x);
@@ -109,12 +111,12 @@ public class RobotPlayer {
     // "else if" only executes if first condition is false
     if (spawnCount < 12) {
       int cost = rc.getCurrentRatCost();
-      if (cheese > cost + 100) {
+      if (cheese > cost + cheeseReserve) {
         spawnRat(rc);
       }
     } else if (round % 50 == 0 && spawnCount < 20) {
       int cost = rc.getCurrentRatCost();
-      if (cheese > cost + 100) {
+      if (cheese > cost + cheeseReserve) {
         spawnRat(rc);
       }
     }
@@ -273,14 +275,19 @@ public class RobotPlayer {
     int id = rc.getID();
     MapLocation me = rc.getLocation();
 
-    // Cache shared array reads (expensive, ~100 bytecode each)
+    // PHASE 2: Skip if on cooldown (save bytecode)
+    if (rc.getActionCooldownTurns() >= GameConstants.COOLDOWN_LIMIT) {
+      return; // Can't act this round
+    }
+
+    // Cache shared array reads
     if (lastCacheRound != round) {
       cachedOurKing = new MapLocation(rc.readSharedArray(0), rc.readSharedArray(1));
       cachedEnemyKing = new MapLocation(rc.readSharedArray(2), rc.readSharedArray(3));
       lastCacheRound = round;
     }
 
-    // SUICIDE IF IDLE TOO LONG
+    // Suicide if idle too long
     roundsSinceLastAttack++;
     if (roundsSinceLastAttack > 100) {
       rc.disintegrate();
@@ -533,6 +540,11 @@ public class RobotPlayer {
 
   private static void simpleMove(RobotController rc, MapLocation target)
       throws GameActionException {
+    // PHASE 2: Skip if on movement cooldown
+    if (rc.getMovementCooldownTurns() >= GameConstants.COOLDOWN_LIMIT) {
+      return; // Can't move, save bytecode
+    }
+
     MapLocation me = rc.getLocation();
     Direction desired = me.directionTo(target);
     Direction facing = rc.getDirection();
@@ -540,7 +552,6 @@ public class RobotPlayer {
     int id = rc.getID();
 
     // STUCK DETECTION
-    // Track if we're making progress or spinning in place
     if (me.equals(lastPosition)) {
       stuckRounds++;
     } else {
@@ -611,16 +622,30 @@ public class RobotPlayer {
       }
     }
 
-    // GREEDY MOVEMENT: Turn toward target, then move forward
-    // Using move(Direction) costs 18 cd (strafe), turn+forward costs 10 cd
+    // GREEDY MOVEMENT
     if (rc.canMove(desired)) {
+      // PHASE 3: Check for traps before moving
+      MapLocation nextLoc = me.add(desired);
+      if (rc.canSenseLocation(nextLoc)) {
+        MapInfo nextInfo = rc.senseMapInfo(nextLoc);
+        if (nextInfo.getTrap() != TrapType.NONE) {
+          // Enemy trap ahead! Try perpendicular to avoid
+          Direction[] avoidTrap = {rotateLeft(desired), rotateRight(desired)};
+          for (Direction alt : avoidTrap) {
+            if (rc.canMove(alt)) {
+              rc.move(alt);
+              return;
+            }
+          }
+        }
+      }
+
       rc.move(desired);
       return;
     }
 
-    // OBSTACLE HANDLING: Blocked by wall or rat
+    // OBSTACLE HANDLING
     if (facing == desired) {
-      // We're facing target but can't move - something is blocking
       MapLocation nextLoc = me.add(desired);
 
       if (rc.canSenseLocation(nextLoc)) {
