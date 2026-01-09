@@ -320,18 +320,25 @@ public class RobotPlayer {
     RobotInfo[] enemies = rc.senseNearbyRobots(-1, rc.getTeam().opponent());
     RobotInfo carrying = rc.getCarrying();
 
-    // SINGLE LOOP optimization: Process all enemies in one pass
+    // SINGLE LOOP: Process enemies with smart prioritization
     RobotInfo woundedEnemy = null;
     RobotInfo babyRat = null;
     RobotInfo enemyKing = null;
+    int mostCheese = 0;
 
     for (RobotInfo enemy : enemies) {
       if (enemy.getType() == UnitType.BABY_RAT) {
+        // Ratnap wounded enemies
         if (enemy.getHealth() < 50 && woundedEnemy == null) {
-          woundedEnemy = enemy; // Ratnap target
+          woundedEnemy = enemy;
         }
-        if (babyRat == null) {
-          babyRat = enemy; // Attack target
+
+        // TARGET PRIORITIZATION: Attack collectors carrying cheese!
+        // Disrupt enemy economy by killing collectors with cargo
+        int enemyCheese = enemy.getRawCheeseAmount();
+        if (enemyCheese > mostCheese || babyRat == null) {
+          mostCheese = enemyCheese;
+          babyRat = enemy; // Prefer collectors over empty attackers
         }
       } else if (enemy.getType() == UnitType.RAT_KING && enemyKing == null) {
         enemyKing = enemy;
