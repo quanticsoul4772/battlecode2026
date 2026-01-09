@@ -216,11 +216,15 @@ public class RobotPlayer {
   private static int myRole = -1;
 
   private static void runBabyRat(RobotController rc) throws GameActionException {
-    // OPTIMIZATION: Cache all API calls at start
     int cheese = rc.getRawCheese();
     int round = rc.getRoundNum();
     MapLocation me = rc.getLocation();
     int id = rc.getID();
+
+    // MOVEMENT DEBUG
+    if (round % 50 == 0) {
+      System.out.println("RAT:" + round + ":" + id + ":pos=" + me + " moveCd=" + rc.getMovementCooldownTurns() + " actionCd=" + rc.getActionCooldownTurns());
+    }
 
     // ==================== ROLE ASSIGNMENT ====================
     // Assign role once on first execution
@@ -294,8 +298,15 @@ public class RobotPlayer {
     int id = rc.getID();
     MapLocation me = rc.getLocation();
 
-    // PHASE 2: Skip if not ready (cleaner than cooldown check)
+    if (round % 50 == 0) {
+      System.out.println("ATK:" + round + ":" + id + ":running pos=" + me);
+    }
+
+    // PHASE 2: Skip if not ready
     if (!rc.isActionReady()) {
+      if (round % 50 == 0) {
+        System.out.println("ATK_SKIP:" + round + ":" + id + ":NOT_READY cd=" + rc.getActionCooldownTurns());
+      }
       return;
     }
 
@@ -616,6 +627,9 @@ public class RobotPlayer {
       throws GameActionException {
     // PHASE 2: Skip if not ready
     if (!rc.isMovementReady()) {
+      if (rc.getRoundNum() % 50 == 0) {
+        System.out.println("MOVE_SKIP:" + rc.getRoundNum() + ":" + rc.getID() + ":NOT_READY cd=" + rc.getMovementCooldownTurns());
+      }
       return;
     }
 
@@ -696,32 +710,39 @@ public class RobotPlayer {
       }
     }
 
-    // GREEDY MOVEMENT
-    if (rc.canMove(desired)) {
-      // PHASE 3: Smart trap detection
-      if (Clock.getBytecodesLeft() > 500) {
-        MapLocation nextLoc = me.add(desired);
-        if (rc.canSenseLocation(nextLoc)) {
-          MapInfo nextInfo = rc.senseMapInfo(nextLoc);
-          TrapType trap = nextInfo.getTrap();
+    // GREEDY MOVEMENT: Use turn+forward to avoid strafe penalty!
+    // CRITICAL FIX: rc.move(dir) costs 18 cd (strafe), accumulates cooldown
+    // turn+moveForward costs 10 cd total, sustainable
 
-          // ONLY avoid RAT_TRAPs (50 damage + 20 stun to rats)
-          // CAT_TRAPs are harmless to rats (only hurt cats)
-          if (trap == TrapType.RAT_TRAP) {
-            // Rat trap! Avoid (50 damage = 5 attacks worth!)
-            Direction[] avoidTrap = {rotateLeft(desired), rotateRight(desired)};
-            for (Direction alt : avoidTrap) {
-              if (rc.canMove(alt)) {
-                rc.move(alt);
-                return;
-              }
+    // Turn toward target if needed
+    if (facing != desired && rc.canTurn()) {
+      rc.turn(desired);
+      return;
+    }
+
+    // Check for traps ahead
+    if (facing == desired && Clock.getBytecodesLeft() > 500) {
+      MapLocation nextLoc = me.add(desired);
+      if (rc.canSenseLocation(nextLoc)) {
+        MapInfo nextInfo = rc.senseMapInfo(nextLoc);
+        TrapType trap = nextInfo.getTrap();
+
+        // Avoid RAT_TRAPs only
+        if (trap == TrapType.RAT_TRAP) {
+          Direction[] avoidTrap = {rotateLeft(desired), rotateRight(desired)};
+          for (Direction alt : avoidTrap) {
+            if (rc.canTurn()) {
+              rc.turn(alt);
+              return;
             }
           }
-          // If CAT_TRAP: ignore, walk through it
         }
       }
+    }
 
-      rc.move(desired);
+    // Move forward (10 cd, not 18)
+    if (facing == desired && rc.canMoveForward()) {
+      rc.moveForward();
       return;
     }
 
@@ -757,17 +778,12 @@ public class RobotPlayer {
       }
     }
 
-    // EMERGENCY UNSTUCK: Try ANY direction to keep moving
+    // EMERGENCY UNSTUCK: Try any direction with turn (avoid strafe)
     for (Direction dir : directions) {
-      if (rc.canMove(dir)) {
-        rc.move(dir);
+      if (rc.canTurn()) {
+        rc.turn(dir);
         return;
       }
-    }
-
-    // Can't move - try turning at least
-    if (rc.canTurn() && facing != desired) {
-      rc.turn(desired);
     }
   }
 
