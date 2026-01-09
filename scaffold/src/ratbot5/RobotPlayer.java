@@ -613,25 +613,16 @@ public class RobotPlayer {
       stuckRounds = 0;
     }
 
-    // FORCE movement if stuck too long
-    if (stuckRounds >= FORCED_MOVEMENT_THRESHOLD) {
-      int dx = target.x - me.x;
-      int dy = target.y - me.y;
-      int clampedDx = Math.max(-1, Math.min(1, dx));
-      int clampedDy = Math.max(-1, Math.min(1, dy));
-
-      Direction exact = Direction.fromDelta(clampedDx, clampedDy);
-      if (exact != Direction.CENTER && rc.canTurn()) {
-        rc.turn(exact);
-        stuckRounds = 0;
-        return;
-      }
-
-      // Try any direction
-      for (Direction dir : Direction.allDirections()) {
-        if (rc.canTurn()) {
-          rc.turn(dir);
-          stuckRounds = 0;
+    // USE BUG2 if stuck too long
+    if (stuckRounds >= 3) {
+      Direction bug2Dir = bug2(rc, target);
+      if (bug2Dir != Direction.CENTER) {
+        if (rc.getDirection() != bug2Dir && rc.canTurn()) {
+          rc.turn(bug2Dir);
+          return;
+        }
+        if (rc.canMoveForward()) {
+          rc.moveForward();
           return;
         }
       }
@@ -734,5 +725,61 @@ public class RobotPlayer {
         }
       }
     }
+  }
+
+  // ================================================================
+  // BUG2 PATHFINDING (From javadoc)
+  // ================================================================
+
+  private static MapLocation bugTarget = null;
+  private static boolean bugTracing = false;
+  private static Direction bugTracingDir = Direction.NORTH;
+  private static int bugStartDist = 0;
+
+  private static Direction bug2(RobotController rc, MapLocation target) throws GameActionException {
+    MapLocation me = rc.getLocation();
+
+    // Reset if target changed
+    if (bugTarget == null || !bugTarget.equals(target)) {
+      bugTarget = target;
+      bugTracing = false;
+    }
+
+    Direction toTarget = me.directionTo(target);
+
+    // Try direct path (greedy)
+    if (!bugTracing && rc.canMove(toTarget)) {
+      return toTarget;
+    }
+
+    // Start tracing obstacle
+    if (!bugTracing) {
+      bugTracing = true;
+      bugTracingDir = toTarget;
+      bugStartDist = me.distanceSquaredTo(target);
+    }
+
+    // Follow obstacle edge
+    if (bugTracing) {
+      int curDist = me.distanceSquaredTo(target);
+
+      // Leave trace if got closer
+      if (curDist < bugStartDist && rc.canMove(toTarget)) {
+        bugTracing = false;
+        return toTarget;
+      }
+
+      // Rotate around obstacle (use javadoc built-ins!)
+      for (int i = 0; i < 8; i++) {
+        if (rc.canMove(bugTracingDir)) {
+          Direction next = bugTracingDir.rotateLeft();
+          bugTracingDir = next;
+          return bugTracingDir;
+        }
+        bugTracingDir = bugTracingDir.rotateRight();
+      }
+    }
+
+    return toTarget;
   }
 }
