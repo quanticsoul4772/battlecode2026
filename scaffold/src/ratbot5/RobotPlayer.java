@@ -231,11 +231,19 @@ public class RobotPlayer {
       return;
     }
 
-    // Attack king with proper distance
+    // Attack king with proper distance AND squeak location
     for (RobotInfo enemy : enemies) {
       if (enemy.getType().isRatKingType()) {
         MapLocation kingCenter = enemy.getLocation();
         int dist = (int) me.bottomLeftDistanceSquaredTo(kingCenter);
+
+        // SQUEAK enemy king location for coordination
+        try {
+          int squeak = (1 << 28) | (kingCenter.y << 16) | (kingCenter.x << 4);
+          rc.squeak(squeak);
+        } catch (Exception e) {
+          // Squeak failed
+        }
 
         // Attack all 9 king tiles
         for (int dx = -1; dx <= 1; dx++) {
@@ -250,10 +258,27 @@ public class RobotPlayer {
       }
     }
 
-    // No enemies - rush enemy king
-    if (rc.getRoundNum() % 50 == 0) {
-      System.out.println("RUSH_KING:" + rc.getRoundNum() + ":" + rc.getID());
+    // No enemies visible - check squeaks for enemy king (COORDINATION!)
+    try {
+      Message[] squeaks = rc.readSqueaks(-1);
+      for (Message msg : squeaks) {
+        if (msg.getSenderID() != rc.getID()) {
+          int bytes = msg.getBytes();
+          int type = (bytes >> 28) & 0xF;
+          if (type == 1) { // Enemy king squeak
+            int x = (bytes >> 4) & 0xFFF;
+            int y = (bytes >> 16) & 0xFFF;
+            MapLocation squeakedKing = new MapLocation(x, y);
+            moveTo(rc, squeakedKing);
+            return;
+          }
+        }
+      }
+    } catch (Exception e) {
+      // Squeak failed
     }
+
+    // Rush enemy king from shared array
     MapLocation enemyKing = new MapLocation(rc.readSharedArray(2), rc.readSharedArray(3));
     moveTo(rc, enemyKing);
   }
