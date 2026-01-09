@@ -141,19 +141,13 @@ public class RobotPlayer {
       myRole = rc.getID() % 2; // 0=attacker, 1=collector
     }
 
-    // DEBUG: Show what we're doing
-    if (round % 50 == 0) {
-      System.out.println(
-          "RAT:"
-              + round
-              + ":"
-              + id
-              + ":role="
-              + (myRole == 0 ? "ATK" : "COL")
-              + " moveCd="
-              + rc.getMovementCooldownTurns()
-              + " actionCd="
-              + rc.getActionCooldownTurns());
+    // Visual debugging in client
+    rc.setIndicatorString((myRole == 0 ? "ATK" : "COL"));
+
+    // Check for 2nd king formation signal
+    if (round > 50 && myRole == 1 && rc.canBecomeRatKing()) {
+      rc.becomeRatKing(); // Form 2nd king!
+      return;
     }
 
     if (myRole == 0) {
