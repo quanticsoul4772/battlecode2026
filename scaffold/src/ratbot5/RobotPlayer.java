@@ -185,14 +185,21 @@ public class RobotPlayer {
     }
 
     // Attack best target
-    if (bestTarget != null && rc.canAttack(bestTarget.getLocation())) {
-      int globalCheese = rc.getGlobalCheese();
-      if (globalCheese > ENHANCED_THRESHOLD) {
-        rc.attack(bestTarget.getLocation(), ENHANCED_ATTACK_CHEESE);
+    if (bestTarget != null) {
+      if (rc.canAttack(bestTarget.getLocation())) {
+        int globalCheese = rc.getGlobalCheese();
+        if (globalCheese > ENHANCED_THRESHOLD) {
+          rc.attack(bestTarget.getLocation(), ENHANCED_ATTACK_CHEESE);
+        } else {
+          rc.attack(bestTarget.getLocation());
+        }
+        System.out.println("ATTACK_HIT:" + rc.getRoundNum() + ":" + rc.getID());
+        return;
       } else {
-        rc.attack(bestTarget.getLocation());
+        if (rc.getRoundNum() % 50 == 0) {
+          System.out.println("ATTACK_FAIL:" + rc.getRoundNum() + ":" + rc.getID() + ":canAttack=false");
+        }
       }
-      return;
     }
 
     // Attack king if visible
@@ -200,19 +207,28 @@ public class RobotPlayer {
       if (enemy.getType().isRatKingType()) {
         MapLocation kingCenter = enemy.getLocation();
         // Attack all 9 king tiles
+        boolean attacked = false;
         for (int dx = -1; dx <= 1; dx++) {
           for (int dy = -1; dy <= 1; dy++) {
             MapLocation tile = new MapLocation(kingCenter.x + dx, kingCenter.y + dy);
             if (rc.canAttack(tile)) {
               rc.attack(tile);
+              System.out.println("KING_HIT:" + rc.getRoundNum() + ":" + rc.getID());
               return;
             }
           }
+        }
+        // King visible but can't attack
+        if (rc.getRoundNum() % 50 == 0) {
+          System.out.println("KING_VISIBLE_NO_ATTACK:" + rc.getRoundNum() + ":" + rc.getID());
         }
       }
     }
 
     // No enemies - rush enemy king
+    if (rc.getRoundNum() % 50 == 0) {
+      System.out.println("RUSH_KING:" + rc.getRoundNum() + ":" + rc.getID());
+    }
     MapLocation enemyKing = new MapLocation(rc.readSharedArray(2), rc.readSharedArray(3));
     moveTo(rc, enemyKing);
   }
@@ -257,10 +273,19 @@ public class RobotPlayer {
     if (nearest != null) {
       if (rc.canPickUpCheese(nearest)) {
         rc.pickUpCheese(nearest);
+        if (rc.getRoundNum() % 10 == 0) {
+          System.out.println("PICKUP:" + rc.getRoundNum() + ":" + rc.getID());
+        }
       } else {
+        if (rc.getRoundNum() % 50 == 0) {
+          System.out.println("MOVE_TO_CHEESE:" + rc.getRoundNum() + ":" + rc.getID());
+        }
         moveTo(rc, nearest);
       }
     } else {
+      if (rc.getRoundNum() % 50 == 0) {
+        System.out.println("NO_CHEESE_EXPLORE:" + rc.getRoundNum() + ":" + rc.getID());
+      }
       // Explore toward center
       MapLocation center = new MapLocation(rc.getMapWidth() / 2, rc.getMapHeight() / 2);
       moveTo(rc, center);
@@ -276,10 +301,14 @@ public class RobotPlayer {
     // Transfer if in range
     if (dist <= 9 && rc.canTransferCheese(king, rc.getRawCheese())) {
       rc.transferCheese(king, rc.getRawCheese());
+      System.out.println("TRANSFER:" + rc.getRoundNum() + ":" + rc.getID() + ":amt=" + rc.getRawCheese());
       return;
     }
 
     // Move toward king
+    if (rc.getRoundNum() % 50 == 0) {
+      System.out.println("DELIVERING:" + rc.getRoundNum() + ":" + rc.getID() + ":dist=" + dist);
+    }
     moveTo(rc, king);
   }
 
