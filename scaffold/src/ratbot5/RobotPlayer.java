@@ -320,6 +320,16 @@ public class RobotPlayer {
   private static void runCollector(RobotController rc) throws GameActionException {
     int cheese = rc.getRawCheese();
 
+    // Check bytecode budget
+    if (Clock.getBytecodesLeft() < rc.getType().getBytecodeLimit() * 0.1) {
+      // Emergency mode - just deliver what we have
+      if (cheese > 0) {
+        MapLocation king = new MapLocation(rc.readSharedArray(0), rc.readSharedArray(1));
+        moveTo(rc, king);
+      }
+      return;
+    }
+
     if (cheese >= DELIVERY_THRESHOLD) {
       deliver(rc);
     } else {
