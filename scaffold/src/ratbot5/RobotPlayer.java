@@ -220,10 +220,23 @@ public class RobotPlayer {
   // ================================================================
 
   private static void runAttacker(RobotController rc) throws GameActionException {
-    if (!rc.isActionReady()) return;
+    // DEBUG: First line of runAttacker
+    if (rc.getRoundNum() % 50 == 0) {
+      System.out.println("ATK_START:" + rc.getRoundNum() + ":" + rc.getID());
+    }
+
+    if (!rc.isActionReady()) {
+      if (rc.getRoundNum() % 50 == 0) {
+        System.out.println("ATK_NOT_READY:" + rc.getRoundNum() + ":" + rc.getID());
+      }
+      return;
+    }
 
     // Bytecode check
     if (Clock.getBytecodesLeft() < rc.getType().getBytecodeLimit() * 0.1) {
+      if (rc.getRoundNum() % 50 == 0) {
+        System.out.println("ATK_LOW_BYTECODE:" + rc.getRoundNum() + ":" + rc.getID());
+      }
       MapLocation enemyKing = new MapLocation(rc.readSharedArray(2), rc.readSharedArray(3));
       moveTo(rc, enemyKing);
       return;
