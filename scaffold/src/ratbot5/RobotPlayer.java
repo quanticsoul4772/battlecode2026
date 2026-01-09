@@ -355,36 +355,30 @@ public class RobotPlayer {
     MapLocation me = rc.getLocation();
     int visionRange = rc.getType().getVisionRadiusSquared();
 
-    // Use getAllLocationsWithinRadiusSquared for complete area scan
-    MapLocation[] allLocs = rc.getAllLocationsWithinRadiusSquared(me, visionRange);
+    // Scan area efficiently using senseNearbyMapInfos
+    MapInfo[] nearbyInfo = rc.senseNearbyMapInfos(me, visionRange);
     MapLocation nearest = null;
     int nearestDist = Integer.MAX_VALUE;
-    int cheeseFound = 0;
-    int minesFound = 0;
 
-    for (MapLocation loc : allLocs) {
-      if (rc.canSenseLocation(loc)) {
-        MapInfo info = rc.senseMapInfo(loc);
-
-        // Squeak mine locations (only once per mine)
-        if (info.hasCheeseMine() && minesFound == 0) {
-          try {
-            int squeak = (3 << 28) | (loc.y << 16) | (loc.x << 4);
-            rc.squeak(squeak);
-            minesFound++;
-          } catch (Exception e) {
-            // Squeak failed
-          }
+    for (MapInfo info : nearbyInfo) {
+      // Squeak mine locations when found
+      if (info.hasCheeseMine()) {
+        try {
+          MapLocation mineLoc = info.getMapLocation();
+          int squeak = (3 << 28) | (mineLoc.y << 16) | (mineLoc.x << 4);
+          rc.squeak(squeak);
+        } catch (Exception e) {
+          // Squeak failed
         }
+      }
 
-        // Find nearest cheese
-        if (info.getCheeseAmount() > 0) {
-          cheeseFound++;
-          int dist = me.distanceSquaredTo(loc);
-          if (dist < nearestDist) {
-            nearestDist = dist;
-            nearest = loc;
-          }
+      // Find nearest cheese
+      if (info.getCheeseAmount() > 0) {
+        MapLocation loc = info.getMapLocation();
+        int dist = me.distanceSquaredTo(loc);
+        if (dist < nearestDist) {
+          nearestDist = dist;
+          nearest = loc;
         }
       }
     }
