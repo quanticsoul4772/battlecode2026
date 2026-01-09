@@ -306,22 +306,35 @@ public class RobotPlayer {
       }
     }
 
-    // READ squeaks to learn about cheese mines from other collectors
+    // READ squeaks with full metadata
     try {
       Message[] squeaks = rc.readSqueaks(-1);
+      Message freshestMine = null;
+      int newestRound = 0;
+
       for (Message msg : squeaks) {
-        int bytes = msg.getBytes();
-        int type = (bytes >> 28) & 0xF;
-        if (type == 3) { // Cheese mine squeak
-          int x = (bytes >> 4) & 0xFFF;
-          int y = (bytes >> 16) & 0xFFF;
-          MapLocation mineLoc = new MapLocation(x, y);
-          int dist = me.distanceSquaredTo(mineLoc);
-          // If closer than current target, go to this mine
-          if (nearest == null || dist < nearestDist) {
-            nearest = mineLoc;
-            nearestDist = dist;
+        // Skip own squeaks
+        if (msg.getSenderID() == rc.getID()) continue;
+
+        // Find freshest mine squeak
+        if (msg.getRound() > newestRound) {
+          int bytes = msg.getBytes();
+          int type = (bytes >> 28) & 0xF;
+          if (type == 3) {
+            freshestMine = msg;
+            newestRound = msg.getRound();
           }
+        }
+      }
+
+      // Use freshest mine location
+      if (freshestMine != null) {
+        // Go to source (where ally found mine)
+        MapLocation mineSource = freshestMine.getSource();
+        int dist = me.distanceSquaredTo(mineSource);
+        if (nearest == null || dist < nearestDist) {
+          nearest = mineSource;
+          nearestDist = dist;
         }
       }
     } catch (Exception e) {
