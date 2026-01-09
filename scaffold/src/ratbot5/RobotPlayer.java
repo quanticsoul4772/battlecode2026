@@ -67,8 +67,17 @@ public class RobotPlayer {
     // JAVADOC: Use getAllCheese() for total available
     int allCheese = rc.getAllCheese();
 
+    // JAVADOC: Use getHealth() to check king HP
+    int kingHP = rc.getHealth();
+
+    // Emergency: If king HP critical and no hope, resign
+    if (kingHP < 50 && cheese < 100 && spawnCount < 5) {
+      // We're losing badly - resign to save server time
+      // rc.resign(); // Commented - never want to forfeit in competition
+    }
+
     if (round % 50 == 0) {
-      System.out.println("KING:" + round + ":cheese=" + cheese + " all=" + allCheese + " spawned=" + spawnCount);
+      System.out.println("KING:" + round + ":cheese=" + cheese + " HP=" + kingHP + " spawned=" + spawnCount);
     }
 
     // Write position to shared array
