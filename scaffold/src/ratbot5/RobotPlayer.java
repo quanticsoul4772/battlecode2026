@@ -197,7 +197,8 @@ public class RobotPlayer {
         return;
       } else {
         if (rc.getRoundNum() % 50 == 0) {
-          System.out.println("ATTACK_FAIL:" + rc.getRoundNum() + ":" + rc.getID() + ":canAttack=false");
+          System.out.println(
+              "ATTACK_FAIL:" + rc.getRoundNum() + ":" + rc.getID() + ":canAttack=false");
         }
       }
     }
@@ -264,7 +265,8 @@ public class RobotPlayer {
           MapLocation mineLoc = info.getMapLocation();
           int squeak = (3 << 28) | (mineLoc.y << 16) | (mineLoc.x << 4);
           rc.squeak(squeak);
-          System.out.println("MINE_SQUEAK:" + rc.getRoundNum() + ":" + rc.getID() + ":loc=" + mineLoc);
+          System.out.println(
+              "MINE_SQUEAK:" + rc.getRoundNum() + ":" + rc.getID() + ":loc=" + mineLoc);
         } catch (Exception e) {
           // Squeak failed
         }
@@ -310,16 +312,24 @@ public class RobotPlayer {
     if (nearest != null) {
       if (rc.canPickUpCheese(nearest)) {
         rc.pickUpCheese(nearest);
-        System.out.println("PICKUP:" + rc.getRoundNum() + ":" + rc.getID() + ":now=" + rc.getRawCheese());
+        System.out.println(
+            "PICKUP:" + rc.getRoundNum() + ":" + rc.getID() + ":now=" + rc.getRawCheese());
       } else {
         if (rc.getRoundNum() % 50 == 0) {
-          System.out.println("MOVE_TO_CHEESE:" + rc.getRoundNum() + ":" + rc.getID() + ":dist=" + nearestDist);
+          System.out.println(
+              "MOVE_TO_CHEESE:" + rc.getRoundNum() + ":" + rc.getID() + ":dist=" + nearestDist);
         }
         moveTo(rc, nearest);
       }
     } else {
       if (rc.getRoundNum() % 50 == 0) {
-        System.out.println("NO_CHEESE_EXPLORE:" + rc.getRoundNum() + ":" + rc.getID() + ":scanned=" + nearbyInfo.length);
+        System.out.println(
+            "NO_CHEESE_EXPLORE:"
+                + rc.getRoundNum()
+                + ":"
+                + rc.getID()
+                + ":scanned="
+                + nearbyInfo.length);
       }
       // Explore toward center
       MapLocation center = new MapLocation(rc.getMapWidth() / 2, rc.getMapHeight() / 2);
@@ -336,7 +346,8 @@ public class RobotPlayer {
     // Transfer if in range
     if (dist <= 9 && rc.canTransferCheese(king, rc.getRawCheese())) {
       rc.transferCheese(king, rc.getRawCheese());
-      System.out.println("TRANSFER:" + rc.getRoundNum() + ":" + rc.getID() + ":amt=" + rc.getRawCheese());
+      System.out.println(
+          "TRANSFER:" + rc.getRoundNum() + ":" + rc.getID() + ":amt=" + rc.getRawCheese());
       return;
     }
 
