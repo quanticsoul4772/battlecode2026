@@ -739,9 +739,7 @@ public class RobotPlayer {
     return directions[(idx + 1) % 8];
   }
 
-  private static final Direction[] directions = {
-    Direction.NORTH, Direction.NORTHEAST, Direction.EAST, Direction.SOUTHEAST,
-    Direction.SOUTH, Direction.SOUTHWEST, Direction.WEST, Direction.NORTHWEST
+  private static final Direction[] directions = Direction.allDirections();
   };
 
   // ================================================================
