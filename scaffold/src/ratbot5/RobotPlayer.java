@@ -19,10 +19,10 @@ public class RobotPlayer {
   private static final int ENHANCED_THRESHOLD = 300; // Was 500, now 300 for more enhanced attacks
 
   // ========== POPULATION CONFIG ==========
-  // TUNED: More combat power
-  private static final int INITIAL_SPAWN_COUNT = 15; // Was 12, now 15
-  private static final int MAX_SPAWN_COUNT = 25; // Was 20, now 25
-  private static final int COLLECTOR_MINIMUM = 5; // Was 4, now 5
+  // ANTI-TRAFFIC: Fewer rats = less congestion
+  private static final int INITIAL_SPAWN_COUNT = 10; // Reduced to minimize traffic jams
+  private static final int MAX_SPAWN_COUNT = 15; // Cap total population
+  private static final int COLLECTOR_MINIMUM = 3; // Minimum for economy
 
   // ========== MOVEMENT CONFIG ==========
   private static final int POSITION_HISTORY_SIZE = 5; // RANGE: 3-7
