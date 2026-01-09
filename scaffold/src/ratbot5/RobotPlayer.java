@@ -499,7 +499,7 @@ public class RobotPlayer {
       }
     }
 
-    // Normal movement: turn + forward (10 cd, no strafe)
+    // Normal movement with javadoc methods
     Direction desired = me.directionTo(target);
 
     if (desired == Direction.CENTER) {
@@ -508,13 +508,52 @@ public class RobotPlayer {
 
     Direction facing = rc.getDirection();
 
-    // PHASE 2: Check for traps before moving
-    if (facing == desired && Clock.getBytecodesLeft() > 500) {
+    // Check ahead before moving
+    if (facing == desired) {
       MapLocation nextLoc = rc.adjacentLocation(facing);
+
+      // Validate position is on map
+      if (!rc.onTheMap(nextLoc)) {
+        // Off map - try different direction
+        for (Direction alt : Direction.allDirections()) {
+          if (rc.canTurn()) {
+            rc.turn(alt);
+            return;
+          }
+        }
+      }
+
+      // Check passability
       if (rc.canSenseLocation(nextLoc)) {
+        // Check for obstacles
+        if (!rc.sensePassability(nextLoc)) {
+          // Wall or dirt - try perpendicular
+          for (Direction alt : new Direction[] {desired.rotateLeft(), desired.rotateRight()}) {
+            if (rc.canTurn()) {
+              rc.turn(alt);
+              return;
+            }
+          }
+        }
+
+        // Check for rats blocking
+        if (rc.isLocationOccupied(nextLoc)) {
+          RobotInfo blocker = rc.senseRobotAtLocation(nextLoc);
+          if (blocker != null && blocker.getTeam() == rc.getTeam()) {
+            // Friendly rat - try going around
+            for (Direction alt : new Direction[] {desired.rotateLeft(), desired.rotateRight()}) {
+              if (rc.canTurn()) {
+                rc.turn(alt);
+                return;
+              }
+            }
+          }
+        }
+
+        // Check for traps
         MapInfo nextInfo = rc.senseMapInfo(nextLoc);
         if (nextInfo.getTrap() == TrapType.RAT_TRAP) {
-          // Avoid rat trap (50 damage!)
+          // Rat trap - avoid!
           for (Direction alt : new Direction[] {desired.rotateLeft(), desired.rotateRight()}) {
             if (rc.canTurn()) {
               rc.turn(alt);
@@ -523,12 +562,17 @@ public class RobotPlayer {
           }
         }
       }
+
+      // Path is clear - move forward
+      if (rc.canMoveForward()) {
+        rc.moveForward();
+        return;
+      }
     }
 
+    // Not facing target - turn toward it
     if (facing != desired && rc.canTurn()) {
       rc.turn(desired);
-    } else if (facing == desired && rc.canMoveForward()) {
-      rc.moveForward();
     }
   }
 }
