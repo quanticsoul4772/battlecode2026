@@ -52,7 +52,7 @@ public class RobotPlayer {
   public static void run(RobotController rc) throws GameActionException {
     while (true) {
       try {
-        if (rc.getType() == UnitType.RAT_KING) {
+        if (rc.getType().isRatKingType()) {
           runKing(rc);
         } else {
           runBabyRat(rc);
@@ -299,8 +299,16 @@ public class RobotPlayer {
       return;
     }
 
-    // BYTECODE MONITORING: Check budget before expensive operations
+    // BYTECODE MONITORING with dynamic limit
+    int bytecodeLimit = rc.getType().getBytecodeLimit(); // 17,500 for baby rats
     int bytecodeLeft = Clock.getBytecodesLeft();
+
+    // Early warning if approaching limit
+    if (bytecodeLeft < bytecodeLimit * 0.1) {
+      // Less than 10% left - skip all optional operations!
+      simpleMove(rc, cachedEnemyKing);
+      return;
+    }
 
     // Cache shared array reads
     if (lastCacheRound != round) {
@@ -316,8 +324,9 @@ public class RobotPlayer {
       return;
     }
 
-    // SCAN FOR ENEMIES (single pass)
-    RobotInfo[] enemies = rc.senseNearbyRobots(-1, rc.getTeam().opponent());
+    // SCAN FOR ENEMIES at optimal range
+    int visionRange = rc.getType().getVisionRadiusSquared();
+    RobotInfo[] enemies = rc.senseNearbyRobots(visionRange, rc.getTeam().opponent());
     RobotInfo carrying = rc.getCarrying();
 
     // SINGLE LOOP: Process enemies with smart prioritization
@@ -327,20 +336,19 @@ public class RobotPlayer {
     int mostCheese = 0;
 
     for (RobotInfo enemy : enemies) {
-      if (enemy.getType() == UnitType.BABY_RAT) {
+      if (enemy.getType().isBabyRatType()) {
         // Ratnap wounded enemies
         if (enemy.getHealth() < 50 && woundedEnemy == null) {
           woundedEnemy = enemy;
         }
 
         // TARGET PRIORITIZATION: Attack collectors carrying cheese!
-        // Disrupt enemy economy by killing collectors with cargo
         int enemyCheese = enemy.getRawCheeseAmount();
         if (enemyCheese > mostCheese || babyRat == null) {
           mostCheese = enemyCheese;
-          babyRat = enemy; // Prefer collectors over empty attackers
+          babyRat = enemy;
         }
-      } else if (enemy.getType() == UnitType.RAT_KING && enemyKing == null) {
+      } else if (enemy.getType().isRatKingType() && enemyKing == null) {
         enemyKing = enemy;
       }
     }
