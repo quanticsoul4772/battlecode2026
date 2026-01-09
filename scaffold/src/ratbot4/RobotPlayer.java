@@ -690,13 +690,17 @@ public class RobotPlayer {
 
     // GREEDY MOVEMENT
     if (rc.canMove(desired)) {
-      // PHASE 3: Check for traps (only if enough bytecode)
+      // PHASE 3: Smart trap detection
       if (Clock.getBytecodesLeft() > 500) {
         MapLocation nextLoc = me.add(desired);
         if (rc.canSenseLocation(nextLoc)) {
           MapInfo nextInfo = rc.senseMapInfo(nextLoc);
-          if (nextInfo.getTrap() != TrapType.NONE) {
-            // Enemy trap! Try perpendicular
+          TrapType trap = nextInfo.getTrap();
+
+          // ONLY avoid RAT_TRAPs (50 damage + 20 stun to rats)
+          // CAT_TRAPs are harmless to rats (only hurt cats)
+          if (trap == TrapType.RAT_TRAP) {
+            // Rat trap! Avoid (50 damage = 5 attacks worth!)
             Direction[] avoidTrap = {rotateLeft(desired), rotateRight(desired)};
             for (Direction alt : avoidTrap) {
               if (rc.canMove(alt)) {
@@ -705,6 +709,7 @@ public class RobotPlayer {
               }
             }
           }
+          // If CAT_TRAP: ignore, walk through it
         }
       }
 
