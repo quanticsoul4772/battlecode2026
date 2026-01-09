@@ -98,10 +98,19 @@ public class RobotPlayer {
       }
     }
 
-    // Place defensive traps
-    if (spawnCount >= 10 && trapCount < 5 && cheese > 300) {
+    // Place defensive traps (both cat and rat traps)
+    if (spawnCount >= 10 && trapCount < 10 && cheese > 300) {
       for (Direction dir : Direction.allDirections()) {
         MapLocation loc = me.add(dir).add(dir);
+
+        // Place rat traps first (anti-rat defense)
+        if (trapCount < 5 && rc.canPlaceRatTrap(loc)) {
+          rc.placeRatTrap(loc);
+          trapCount++;
+          return;
+        }
+
+        // Then cat traps (anti-cat defense)
         if (rc.canPlaceCatTrap(loc)) {
           rc.placeCatTrap(loc);
           trapCount++;
