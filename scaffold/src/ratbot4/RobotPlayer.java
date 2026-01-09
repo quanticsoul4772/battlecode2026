@@ -244,6 +244,15 @@ public class RobotPlayer {
     // VISUAL DEBUGGING: Show role above rat in client
     rc.setIndicatorString((myRole == 0 ? "ATK" : "COL"));
 
+    // PHASE 4: Check if should form 2nd king
+    if (round > 75 && cheese > 1000 && spawnCount >= 15) {
+      RobotInfo[] allies = rc.senseNearbyRobots(2, rc.getTeam());
+      if (allies.length >= 6 && rc.canBecomeRatKing()) {
+        rc.becomeRatKing(); // Form 2nd king! (HP = sum of 7 rats)
+        return;
+      }
+    }
+
     // Execute role behavior
     if (myRole == 0) {
       attackEnemyKing(rc);
