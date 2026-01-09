@@ -371,6 +371,21 @@ public class RobotPlayer {
 
     MapLocation me = rc.getLocation();
 
+    // PHASE 2: Clear obstacles ahead
+    MapLocation ahead = rc.adjacentLocation(rc.getDirection());
+    if (rc.canRemoveDirt(ahead)) {
+      rc.removeDirt(ahead);
+      return;
+    }
+    if (rc.canRemoveRatTrap(ahead)) {
+      rc.removeRatTrap(ahead);
+      return;
+    }
+    if (rc.canRemoveCatTrap(ahead)) {
+      rc.removeCatTrap(ahead);
+      return;
+    }
+
     // Update position history
     positionHistory[historyIndex] = me;
     historyIndex = (historyIndex + 1) % POSITION_HISTORY_SIZE;
@@ -417,12 +432,28 @@ public class RobotPlayer {
     // Normal movement: turn + forward (10 cd, no strafe)
     Direction desired = me.directionTo(target);
 
-    // Don't try to turn to CENTER (we're at target or very close)
     if (desired == Direction.CENTER) {
-      return; // Already at target
+      return;
     }
 
     Direction facing = rc.getDirection();
+
+    // PHASE 2: Check for traps before moving
+    if (facing == desired && Clock.getBytecodesLeft() > 500) {
+      MapLocation nextLoc = rc.adjacentLocation(facing);
+      if (rc.canSenseLocation(nextLoc)) {
+        MapInfo nextInfo = rc.senseMapInfo(nextLoc);
+        if (nextInfo.getTrap() == TrapType.RAT_TRAP) {
+          // Avoid rat trap (50 damage!)
+          for (Direction alt : new Direction[]{desired.rotateLeft(), desired.rotateRight()}) {
+            if (rc.canTurn()) {
+              rc.turn(alt);
+              return;
+            }
+          }
+        }
+      }
+    }
 
     if (facing != desired && rc.canTurn()) {
       rc.turn(desired);
