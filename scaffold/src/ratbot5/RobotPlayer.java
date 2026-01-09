@@ -64,8 +64,11 @@ public class RobotPlayer {
     int cheese = rc.getGlobalCheese();
     MapLocation me = rc.getLocation();
 
+    // JAVADOC: Use getAllCheese() for total available
+    int allCheese = rc.getAllCheese();
+
     if (round % 50 == 0) {
-      System.out.println("KING:" + round + ":cheese=" + cheese + " spawned=" + spawnCount);
+      System.out.println("KING:" + round + ":cheese=" + cheese + " all=" + allCheese + " spawned=" + spawnCount);
     }
 
     // Write position to shared array
@@ -363,23 +366,34 @@ public class RobotPlayer {
         MapLocation kingCenter = enemy.getLocation();
         int dist = (int) me.bottomLeftDistanceSquaredTo(kingCenter);
 
-        // SQUEAK enemy king location for coordination
+        // JAVADOC: Use getAllPartLocations() to get all 9 king tiles
         try {
-          int squeak = (1 << 28) | (kingCenter.y << 16) | (kingCenter.x << 4);
-          rc.squeak(squeak);
-        } catch (Exception e) {
-          // Squeak failed
-        }
-
-        // Attack all 9 king tiles
-        for (int dx = -1; dx <= 1; dx++) {
-          for (int dy = -1; dy <= 1; dy++) {
-            MapLocation tile = new MapLocation(kingCenter.x + dx, kingCenter.y + dy);
+          MapLocation[] kingTiles = rc.getAllPartLocations(enemy);
+          for (MapLocation tile : kingTiles) {
             if (rc.canAttack(tile)) {
               rc.attack(tile);
               return;
             }
           }
+        } catch (Exception e) {
+          // Fallback to manual tiles
+          for (int dx = -1; dx <= 1; dx++) {
+            for (int dy = -1; dy <= 1; dy++) {
+              MapLocation tile = new MapLocation(kingCenter.x + dx, kingCenter.y + dy);
+              if (rc.canAttack(tile)) {
+                rc.attack(tile);
+                return;
+              }
+            }
+          }
+        }
+
+        // Squeak king location
+        try {
+          int squeak = (1 << 28) | (kingCenter.y << 16) | (kingCenter.x << 4);
+          rc.squeak(squeak);
+        } catch (Exception e) {
+          // Squeak failed
         }
       }
     }
@@ -688,17 +702,24 @@ public class RobotPlayer {
       }
     }
 
-    // Not facing target - turn toward it
-    if (facing != desired && rc.canTurn()) {
-      rc.turn(desired);
+    // JAVADOC: Check if turning is ready specifically
+    if (facing != desired && rc.isTurningReady() && rc.canTurn()) {
+      // Use getTurningCooldownTurns() for precise timing
+      if (rc.getTurningCooldownTurns() < 10) {
+        rc.turn(desired);
+        return;
+      }
     }
 
     // Emergency: If completely stuck, try strafing with move()
     if (!rc.canMoveForward()) {
-      for (Direction dir : Direction.allDirections()) {
-        if (rc.canMove(dir)) {
-          rc.move(dir); // Use strafe as last resort
-          return;
+      // JAVADOC: Use getMovementCooldownTurns() for precise check
+      if (rc.getMovementCooldownTurns() < 10) {
+        for (Direction dir : Direction.allDirections()) {
+          if (rc.canMove(dir)) {
+            rc.move(dir); // Use strafe as last resort
+            return;
+          }
         }
       }
     }
