@@ -388,21 +388,21 @@ public class RobotPlayer {
         // Squeak failed
       }
 
-      // CRITICAL FIX: Attack ALL king tiles, not just center!
-      // King is 3x3 (9 tiles) - try attacking whichever tile is adjacent
-      try {
-        MapLocation[] kingTiles = rc.getAllPartLocations(enemyKing);
-        for (MapLocation tile : kingTiles) {
+      // CRITICAL FIX: Attack ALL king tiles!
+      // King is 3x3 - try all 9 tiles to find adjacent one
+      for (int dx = -1; dx <= 1; dx++) {
+        for (int dy = -1; dy <= 1; dy++) {
+          MapLocation tile = new MapLocation(kingLoc.x + dx, kingLoc.y + dy);
           if (rc.canAttack(tile)) {
             // Check game mode for strategy
             if (rc.isCooperation()) {
               // Cooperation: conserve cheese
               rc.attack(tile);
             } else {
-              // Backstab: use enhanced attacks for points
+              // Backstab: use enhanced for points
               int globalCheese = rc.getGlobalCheese();
               if (globalCheese > CHEESE_ENHANCED_THRESHOLD) {
-                rc.attack(tile, 8); // 13 damage
+                rc.attack(tile, 8);
               } else {
                 rc.attack(tile);
               }
@@ -410,13 +410,6 @@ public class RobotPlayer {
             roundsSinceLastAttack = 0;
             return;
           }
-        }
-      } catch (Exception e) {
-        // getAllPartLocations failed, try center
-        if (rc.canAttack(kingLoc)) {
-          rc.attack(kingLoc);
-          roundsSinceLastAttack = 0;
-          return;
         }
       }
 
