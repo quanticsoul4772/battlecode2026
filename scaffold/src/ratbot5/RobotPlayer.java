@@ -249,9 +249,12 @@ public class RobotPlayer {
 
   private static void collect(RobotController rc) throws GameActionException {
     MapLocation me = rc.getLocation();
+    int visionRange = rc.getType().getVisionRadiusSquared();
 
-    // Scan for cheese - use senseNearbyMapInfos (more efficient)
-    MapInfo[] nearbyInfo = rc.senseNearbyMapInfos();
+    // CRITICAL FIX: Use center+radius to scan full area, not just 90° vision cone!
+    // senseNearbyMapInfos() only scans facing direction
+    // senseNearbyMapInfos(me, radius) scans full circle
+    MapInfo[] nearbyInfo = rc.senseNearbyMapInfos(me, visionRange);
     MapLocation nearest = null;
     int nearestDist = Integer.MAX_VALUE;
     int cheeseFound = 0;
