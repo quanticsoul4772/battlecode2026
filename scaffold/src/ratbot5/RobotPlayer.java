@@ -77,7 +77,8 @@ public class RobotPlayer {
     }
 
     if (round % 50 == 0) {
-      System.out.println("KING:" + round + ":cheese=" + cheese + " HP=" + kingHP + " spawned=" + spawnCount);
+      System.out.println(
+          "KING:" + round + ":cheese=" + cheese + " HP=" + kingHP + " spawned=" + spawnCount);
     }
 
     // Write position to shared array
