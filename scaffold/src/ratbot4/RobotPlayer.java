@@ -272,23 +272,33 @@ public class RobotPlayer {
       return;
     }
 
-    // SCAN FOR ENEMIES
+    // SCAN FOR ENEMIES (single pass)
     RobotInfo[] enemies = rc.senseNearbyRobots(-1, rc.getTeam().opponent());
-
-    // ==================== RATNAPPING ====================
-    // Priority 0: Ratnap wounded enemies (HP < 50)
-    // Grab them and throw toward our king for fall damage
     RobotInfo carrying = rc.getCarrying();
 
-    // Grab wounded enemies
-    if (carrying == null) {
-      for (RobotInfo enemy : enemies) {
-        if (enemy.getType() == UnitType.BABY_RAT && enemy.getHealth() < 50) {
-          if (rc.canCarryRat(enemy.getLocation())) {
-            rc.carryRat(enemy.getLocation());
-            return;
-          }
+    // SINGLE LOOP optimization: Process all enemies in one pass
+    RobotInfo woundedEnemy = null;
+    RobotInfo babyRat = null;
+    RobotInfo enemyKing = null;
+
+    for (RobotInfo enemy : enemies) {
+      if (enemy.getType() == UnitType.BABY_RAT) {
+        if (enemy.getHealth() < 50 && woundedEnemy == null) {
+          woundedEnemy = enemy; // Ratnap target
         }
+        if (babyRat == null) {
+          babyRat = enemy; // Attack target
+        }
+      } else if (enemy.getType() == UnitType.RAT_KING && enemyKing == null) {
+        enemyKing = enemy;
+      }
+    }
+
+    // ==================== RATNAPPING ====================
+    if (carrying == null && woundedEnemy != null) {
+      if (rc.canCarryRat(woundedEnemy.getLocation())) {
+        rc.carryRat(woundedEnemy.getLocation());
+        return;
       }
     }
 
@@ -306,92 +316,55 @@ public class RobotPlayer {
       return;
     }
 
-    // ==================== ATTACK ENEMY BABY RATS (Priority 1) ====================
-    // Baby rats are 1x1 (easy to hit) vs kings 3x3 (hard to hit)
-    // Killing enemy rats reduces their economy and triggers backstab mode
-    //
-    // JAVA LEARNING: Array iteration
-    // "for (RobotInfo enemy : enemies)" iterates through each enemy robot
-    // RobotInfo is an object containing: location, health, type, team, etc.
-    for (RobotInfo enemy : enemies) {
-      // JAVA LEARNING: Enum comparison
-      // enemy.getType() returns UnitType enum (BABY_RAT, RAT_KING, or CAT)
-      // Use == to compare enums, not .equals()
-      if (enemy.getType() == UnitType.BABY_RAT) {
-        MapLocation enemyLoc = enemy.getLocation();
-
-        // Can only attack if adjacent (distSquared <= 2) AND in vision cone
-        // BATTLECODE: Vision is directional! Must face target to see/attack it
-        if (rc.canAttack(enemyLoc)) {
-          int globalCheese = rc.getGlobalCheese();
-
-          // ==================== CHEESE-ENHANCED ATTACKS ====================
-          // Damage formula: 10 + ceil(log2(cheeseSpent))
-          // Examples:
-          //   8 cheese → 10 + ceil(log2(8)) = 10 + 3 = 13 damage
-          //   16 cheese → 10 + 4 = 14 damage
-          //   32 cheese → 10 + 5 = 15 damage
-          //
-          // STRATEGY: Only enhance when we have surplus (cheese > 500)
-          // Cost/benefit: 8 cheese for 3 extra damage = worth it to kill faster
-          //
-          // TUNABLE:
-          // - globalCheese > 500: Surplus threshold (lower = more aggressive)
-          // - 8: Cheese amount (try 16 or 32 for more damage but higher cost)
-          if (globalCheese > 500 && rc.canAttack(enemyLoc, 8)) {
-            rc.attack(enemyLoc, 8); // Enhanced attack (13 damage)
-          } else {
-            rc.attack(enemyLoc); // Basic attack (10 damage)
-          }
-          roundsSinceLastAttack = 0;
-          return; // Attacked, done for this round
+    // ==================== ATTACK BABY RATS ====================
+    if (babyRat != null) {
+      MapLocation enemyLoc = babyRat.getLocation();
+      if (rc.canAttack(enemyLoc)) {
+        int globalCheese = rc.getGlobalCheese();
+        if (globalCheese > 500 && rc.canAttack(enemyLoc, 8)) {
+          rc.attack(enemyLoc, 8); // 13 damage
+        } else {
+          rc.attack(enemyLoc); // 10 damage
         }
+        roundsSinceLastAttack = 0;
+        return;
       }
     }
 
-    // ATTACK ENEMY KING (Priority 2)
-    // Only if no baby rats nearby
-    for (RobotInfo enemy : enemies) {
-      if (enemy.getType() == UnitType.RAT_KING) {
-        MapLocation kingLoc = enemy.getLocation();
-        int dist = me.distanceSquaredTo(kingLoc);
+    // ==================== ATTACK KING ====================
+    if (enemyKing != null) {
+      MapLocation kingLoc = enemyKing.getLocation();
+      int dist = me.distanceSquaredTo(kingLoc);
 
-        // PHASE 2: Squeak enemy king location to coordinate other attackers
-        try {
-          int squeak = encodeSqueak(SqueakType.ENEMY_RAT_KING, kingLoc.x, kingLoc.y, 0);
-          rc.squeak(squeak);
-        } catch (Exception e) {
-          // Squeak failed, continue anyway
-        }
+      // Squeak king location
+      try {
+        int squeak = encodeSqueak(SqueakType.ENEMY_RAT_KING, kingLoc.x, kingLoc.y, 0);
+        rc.squeak(squeak);
+      } catch (Exception e) {
+        // Squeak failed
+      }
 
-        // If adjacent and can attack, do it
-        if (rc.canAttack(kingLoc)) {
-          rc.attack(kingLoc);
-          roundsSinceLastAttack = 0;
-          return;
-        }
-
-        // Close to king (within 10 tiles) - move toward it
-        if (dist <= 10) {
-          Direction toKing = me.directionTo(kingLoc);
-
-          // Turn to face king
-          if (rc.getDirection() != toKing && rc.canTurn()) {
-            rc.turn(toKing);
-            return;
-          }
-
-          // Move forward
-          if (rc.canMoveForward()) {
-            rc.moveForward();
-            return;
-          }
-        }
-
-        // Far from king - navigate toward it
-        simpleMove(rc, kingLoc);
+      if (rc.canAttack(kingLoc)) {
+        rc.attack(kingLoc);
+        roundsSinceLastAttack = 0;
         return;
       }
+
+      // Move toward king
+      if (dist <= 10) {
+        Direction toKing = me.directionTo(kingLoc);
+        if (rc.getDirection() != toKing && rc.canTurn()) {
+          rc.turn(toKing);
+          return;
+        }
+        if (rc.canMoveForward()) {
+          rc.moveForward();
+          return;
+        }
+      }
+
+      simpleMove(rc, kingLoc);
+      return;
     }
 
     // PHASE 2: Read squeaks from other attackers
@@ -411,13 +384,13 @@ public class RobotPlayer {
 
     // NO ENEMIES VISIBLE: SEARCH FOR KING (don't all cluster at same spot!)
     // Spread out search pattern - each rat searches different area
-    MapLocation enemyKing = new MapLocation(rc.readSharedArray(2), rc.readSharedArray(3));
+    MapLocation enemyKingPos = new MapLocation(rc.readSharedArray(2), rc.readSharedArray(3));
 
     // Expanding spiral search: different direction per rat
     int searchDir = (id + round / 10) % 8;
     Direction searchDirection = directions[searchDir];
     MapLocation searchTarget =
-        enemyKing.add(searchDirection).add(searchDirection).add(searchDirection);
+        enemyKingPos.add(searchDirection).add(searchDirection).add(searchDirection);
 
     simpleMove(rc, searchTarget);
   }
