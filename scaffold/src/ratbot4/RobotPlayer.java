@@ -757,4 +757,45 @@ public class RobotPlayer {
     Direction.NORTH, Direction.NORTHEAST, Direction.EAST, Direction.SOUTHEAST,
     Direction.SOUTH, Direction.SOUTHWEST, Direction.WEST, Direction.NORTHWEST
   };
+
+  // ================================================================
+  // SQUEAK COMMUNICATION (Phase 1: Infrastructure)
+  // ================================================================
+  // Squeaks are 32-bit messages sent to nearby rats (16 tile radius)
+  // Format: [4 bits type][12 bits Y][12 bits X][4 bits extra]
+
+  private enum SqueakType {
+    INVALID, // 0
+    ENEMY_RAT_KING, // 1 - Enemy king location
+    ENEMY_BABY_RAT, // 2 - Enemy rat location
+    CHEESE_MINE, // 3 - Cheese mine location
+    DANGER, // 4 - Under attack
+    HELP_KING // 5 - King being attacked
+  }
+
+  // Encode squeak message
+  private static int encodeSqueak(SqueakType type, int x, int y, int extra) {
+    return (type.ordinal() << 28) | (y << 16) | (x << 4) | (extra & 0xF);
+  }
+
+  // Decode squeak type
+  private static SqueakType getSqueakType(int squeak) {
+    int typeOrdinal = (squeak >> 28) & 0xF;
+    if (typeOrdinal < SqueakType.values().length) {
+      return SqueakType.values()[typeOrdinal];
+    }
+    return SqueakType.INVALID;
+  }
+
+  // Decode squeak location
+  private static MapLocation getSqueakLocation(int squeak) {
+    int x = (squeak >> 4) & 0xFFF;
+    int y = (squeak >> 16) & 0xFFF;
+    return new MapLocation(x, y);
+  }
+
+  // Decode squeak extra data
+  private static int getSqueakExtra(int squeak) {
+    return squeak & 0xF;
+  }
 }
