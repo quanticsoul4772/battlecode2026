@@ -366,24 +366,13 @@ public class RobotPlayer {
         MapLocation kingCenter = enemy.getLocation();
         int dist = (int) me.bottomLeftDistanceSquaredTo(kingCenter);
 
-        // JAVADOC: Use getAllPartLocations() to get all 9 king tiles
-        try {
-          MapLocation[] kingTiles = rc.getAllPartLocations(enemy);
-          for (MapLocation tile : kingTiles) {
+        // Attack all 9 king tiles manually
+        for (int dx = -1; dx <= 1; dx++) {
+          for (int dy = -1; dy <= 1; dy++) {
+            MapLocation tile = new MapLocation(kingCenter.x + dx, kingCenter.y + dy);
             if (rc.canAttack(tile)) {
               rc.attack(tile);
               return;
-            }
-          }
-        } catch (Exception e) {
-          // Fallback to manual tiles
-          for (int dx = -1; dx <= 1; dx++) {
-            for (int dy = -1; dy <= 1; dy++) {
-              MapLocation tile = new MapLocation(kingCenter.x + dx, kingCenter.y + dy);
-              if (rc.canAttack(tile)) {
-                rc.attack(tile);
-                return;
-              }
             }
           }
         }
