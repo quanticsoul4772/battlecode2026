@@ -292,13 +292,24 @@ public class RobotPlayer {
     // Attack with game mode adaptation
     boolean coop = rc.isCooperation();
 
-    if (bestTarget != null && rc.canAttack(bestTarget.getLocation())) {
-      if (!coop && rc.getGlobalCheese() > ENHANCED_THRESHOLD) {
-        rc.attack(bestTarget.getLocation(), ENHANCED_ATTACK_CHEESE);
-      } else {
-        rc.attack(bestTarget.getLocation());
+    if (bestTarget != null) {
+      if (rc.getRoundNum() % 50 == 0) {
+        System.out.println("ATK_TARGET:" + rc.getRoundNum() + ":" + rc.getID() + ":canAttack=" + rc.canAttack(bestTarget.getLocation()));
       }
-      return;
+
+      if (rc.canAttack(bestTarget.getLocation())) {
+        if (!coop && rc.getGlobalCheese() > ENHANCED_THRESHOLD) {
+          rc.attack(bestTarget.getLocation(), ENHANCED_ATTACK_CHEESE);
+        } else {
+          rc.attack(bestTarget.getLocation());
+        }
+        System.out.println("ATTACK:" + rc.getRoundNum() + ":" + rc.getID());
+        return;
+      }
+    } else {
+      if (rc.getRoundNum() % 50 == 0) {
+        System.out.println("ATK_NO_TARGET:" + rc.getRoundNum() + ":" + rc.getID());
+      }
     }
 
     // Attack king with proper distance AND squeak location
