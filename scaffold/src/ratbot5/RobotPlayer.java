@@ -469,7 +469,7 @@ public class RobotPlayer {
         MapInfo nextInfo = rc.senseMapInfo(nextLoc);
         if (nextInfo.getTrap() == TrapType.RAT_TRAP) {
           // Avoid rat trap (50 damage!)
-          for (Direction alt : new Direction[]{desired.rotateLeft(), desired.rotateRight()}) {
+          for (Direction alt : new Direction[] {desired.rotateLeft(), desired.rotateRight()}) {
             if (rc.canTurn()) {
               rc.turn(alt);
               return;
