@@ -79,22 +79,19 @@ public class RobotPlayer {
   private static int trapCount = 0; // TUNABLE: How many cat traps we've placed
 
   private static void runKing(RobotController rc) throws GameActionException {
+    // OPTIMIZATION: Cache API calls (50 bytecode each)
     int round = rc.getRoundNum();
     int cheese = rc.getGlobalCheese();
     MapLocation me = rc.getLocation();
 
     // SHARED ARRAY COMMUNICATION
-    // Slot 0-1: Our king position (for baby rats to find us)
     rc.writeSharedArray(0, me.x);
     rc.writeSharedArray(1, me.y);
 
-    // Slot 2-3: Enemy king position (for attackers to rush)
-    // Maps are symmetric (rotation 180°), so enemy is mirrored
+    // Calculate enemy king position once
     if (round == 1) {
-      int enemyX = rc.getMapWidth() - 1 - me.x;
-      int enemyY = rc.getMapHeight() - 1 - me.y;
-      rc.writeSharedArray(2, enemyX);
-      rc.writeSharedArray(3, enemyY);
+      rc.writeSharedArray(2, rc.getMapWidth() - 1 - me.x);
+      rc.writeSharedArray(3, rc.getMapHeight() - 1 - me.y);
     }
 
     // ==================== SPAWNING LOGIC ====================
@@ -217,13 +214,11 @@ public class RobotPlayer {
   private static int myRole = -1;
 
   private static void runBabyRat(RobotController rc) throws GameActionException {
-    // JAVA LEARNING: Local variables
-    // These are created fresh each round (not static)
-    // They only exist inside this function
-    int cheese = rc.getRawCheese(); // How much cheese this rat is carrying
-    int round = rc.getRoundNum(); // Current round number (1-2000)
-    MapLocation me = rc.getLocation(); // This rat's position
-    int id = rc.getID(); // Unique robot ID (starts at 10000+)
+    // OPTIMIZATION: Cache all API calls at start
+    int cheese = rc.getRawCheese();
+    int round = rc.getRoundNum();
+    MapLocation me = rc.getLocation();
+    int id = rc.getID();
 
     // ==================== ROLE ASSIGNMENT ====================
     // Assign role once on first execution
@@ -268,10 +263,22 @@ public class RobotPlayer {
 
   private static int roundsSinceLastAttack = 0;
 
+  // Cache shared array reads (reused multiple times)
+  private static MapLocation cachedOurKing = null;
+  private static MapLocation cachedEnemyKing = null;
+  private static int lastCacheRound = -1;
+
   private static void attackEnemyKing(RobotController rc) throws GameActionException {
     int round = rc.getRoundNum();
     int id = rc.getID();
     MapLocation me = rc.getLocation();
+
+    // Cache shared array reads (expensive, ~100 bytecode each)
+    if (lastCacheRound != round) {
+      cachedOurKing = new MapLocation(rc.readSharedArray(0), rc.readSharedArray(1));
+      cachedEnemyKing = new MapLocation(rc.readSharedArray(2), rc.readSharedArray(3));
+      lastCacheRound = round;
+    }
 
     // SUICIDE IF IDLE TOO LONG
     roundsSinceLastAttack++;
@@ -310,10 +317,9 @@ public class RobotPlayer {
       }
     }
 
-    // Throw carried enemy
+    // Throw carried enemy (reuse cached king position)
     if (carrying != null && rc.canThrowRat()) {
-      MapLocation ourKing = new MapLocation(rc.readSharedArray(0), rc.readSharedArray(1));
-      Direction toKing = me.directionTo(ourKing);
+      Direction toKing = me.directionTo(cachedOurKing);
 
       if (rc.getDirection() != toKing && rc.canTurn()) {
         rc.turn(toKing);
@@ -328,9 +334,10 @@ public class RobotPlayer {
     if (babyRat != null) {
       MapLocation enemyLoc = babyRat.getLocation();
       if (rc.canAttack(enemyLoc)) {
+        // OPTIMIZATION: Cache globalCheese, remove duplicate canAttack check
         int globalCheese = rc.getGlobalCheese();
-        if (globalCheese > 500 && rc.canAttack(enemyLoc, 8)) {
-          rc.attack(enemyLoc, 8); // 13 damage
+        if (globalCheese > 500) {
+          rc.attack(enemyLoc, 8); // 13 damage (assumes we have 8 cheese)
         } else {
           rc.attack(enemyLoc); // 10 damage
         }
@@ -482,42 +489,37 @@ public class RobotPlayer {
   private static void deliver(RobotController rc) throws GameActionException {
     MapLocation me = rc.getLocation();
 
-    // READ KING POSITION from shared array
-    int kingX = rc.readSharedArray(0);
-    int kingY = rc.readSharedArray(1);
+    // OPTIMIZATION: Reuse cached king position
+    if (cachedOurKing == null) {
+      cachedOurKing = new MapLocation(rc.readSharedArray(0), rc.readSharedArray(1));
+    }
 
-    if (kingX == 0) return; // No king position yet
-
-    MapLocation kingLoc = new MapLocation(kingX, kingY);
-    int dist = me.distanceSquaredTo(kingLoc);
+    int dist = me.distanceSquaredTo(cachedOurKing);
 
     // TRACK DELIVERY PROGRESS
-    // If stuck trying to deliver for too long, give up and resume collecting
-    if (kingLoc.equals(lastDeliveryTarget)) {
+    if (cachedOurKing.equals(lastDeliveryTarget)) {
       deliveryStuckCount++;
     } else {
       deliveryStuckCount = 0;
-      lastDeliveryTarget = kingLoc;
+      lastDeliveryTarget = cachedOurKing;
     }
 
-    // TRANSFER CHEESE to king
-    // Range: distSquared <= 9 (3 tiles)
-    if (dist <= 9 && rc.canTransferCheese(kingLoc, rc.getRawCheese())) {
-      rc.transferCheese(kingLoc, rc.getRawCheese());
+    // TRANSFER CHEESE
+    if (dist <= 9 && rc.canTransferCheese(cachedOurKing, rc.getRawCheese())) {
+      rc.transferCheese(cachedOurKing, rc.getRawCheese());
       deliveryStuckCount = 0;
       return;
     }
 
-    // DELIVERY TIMEOUT: If stuck for 10+ rounds and far from king, give up
-    // This prevents infinite navigation on impossible paths
+    // DELIVERY TIMEOUT
     if (deliveryStuckCount >= 10 && dist > 50) {
       deliveryStuckCount = 0;
-      collect(rc); // Resume collecting
+      collect(rc);
       return;
     }
 
     // NAVIGATE toward king
-    simpleMove(rc, kingLoc);
+    simpleMove(rc, cachedOurKing);
   }
 
   // ================================================================
