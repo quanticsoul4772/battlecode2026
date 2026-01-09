@@ -24,9 +24,22 @@
 - 2nd king never forms (conditions impossible)
 - No Bug2 (still greedy pathfinding)
 
+## MCP Reasoning: Movement Freeze Root Cause
+
+**Traffic yielding creates permanent gridlock**:
+- When `friendlies >= 4`, rats yield if `id % 10 != round % 10`
+- All rats check same condition → all yield simultaneously
+- Result: Permanent freeze, no recovery
+
+**Solution**: REMOVE traffic yielding, add intelligent stuck recovery
+
 ## ratbot5 Core Changes
 
-### Change 1: Remove Attacker Suicide (CRITICAL)
+### Change 1: Intelligent Movement System (CRITICAL - REPLACES SUICIDE)
+
+**Remove**:
+- Attacker suicide (doesn't solve movement freeze)
+- Traffic yielding (CAUSES movement freeze)
 
 **Problem**: `ATTACKER_IDLE_SUICIDE_THRESHOLD = 100`
 - All attackers suicide by round 150
@@ -47,7 +60,41 @@ if (roundsSinceLastAttack > 100 && spawnCount > 18) {
 // Remove suicide entirely
 ```
 
-**Recommendation**: Option B (conditional suicide)
+**NEW APPROACH**: Intelligent movement instead of suicide
+
+**Additions**:
+1. Position history (3 rounds) - detect oscillation
+2. Escalating recovery (mild → severe, override constraints)
+3. Team heartbeat (shared array tracks collective movement)
+4. Productive idle (collect cheese, patrol, form kings when no combat)
+5. Direction.fromDelta() (precise movement calculation)
+6. Force movement after 3 stuck rounds (ignore all rules)
+
+**Implementation**:
+```java
+// Position history tracking
+private static MapLocation[] positionHistory = new MapLocation[3];
+
+// Check if stuck (no progress in 3 rounds)
+boolean allSame = true;
+for (MapLocation pos : positionHistory) {
+    if (pos != null && !pos.equals(me)) {
+        allSame = false;
+    }
+}
+
+// FORCE movement if stuck 3 rounds
+if (allSame && stuckRounds >= 3) {
+    Direction random = directions[(round + id * 7) % 8];
+    if (rc.canTurn()) {
+        rc.turn(random);
+        return; // Forced turn breaks stuck
+    }
+}
+
+// NO traffic yielding (removed - causes deadlock)
+// Just try to move every round
+```
 - Suicide only if over 18 rats spawned
 - Keeps population under control
 - Doesn't kill all attackers unnecessarily
