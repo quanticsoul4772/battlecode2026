@@ -19,9 +19,10 @@ public class RobotPlayer {
   private static final int ENHANCED_THRESHOLD = 300; // Was 500, now 300 for more enhanced attacks
 
   // ========== POPULATION CONFIG ==========
-  private static final int INITIAL_SPAWN_COUNT = 12; // RANGE: 8-15
-  private static final int MAX_SPAWN_COUNT = 20; // RANGE: 15-25
-  private static final int COLLECTOR_MINIMUM = 4; // RANGE: 3-6
+  // TUNED: More combat power
+  private static final int INITIAL_SPAWN_COUNT = 15; // Was 12, now 15
+  private static final int MAX_SPAWN_COUNT = 25; // Was 20, now 25
+  private static final int COLLECTOR_MINIMUM = 5; // Was 4, now 5
 
   // ========== MOVEMENT CONFIG ==========
   private static final int POSITION_HISTORY_SIZE = 5; // RANGE: 3-7
@@ -63,6 +64,10 @@ public class RobotPlayer {
     int cheese = rc.getGlobalCheese();
     MapLocation me = rc.getLocation();
 
+    if (round % 50 == 0) {
+      System.out.println("KING:" + round + ":cheese=" + cheese + " spawned=" + spawnCount);
+    }
+
     // Write position to shared array
     rc.writeSharedArray(0, me.x);
     rc.writeSharedArray(1, me.y);
@@ -78,6 +83,7 @@ public class RobotPlayer {
       int cost = rc.getCurrentRatCost();
       if (cheese > cost + KING_CHEESE_RESERVE) {
         spawnRat(rc);
+        System.out.println("SPAWN:" + round + ":rat#" + spawnCount);
       }
     }
     // Instant replacement if low collectors
@@ -87,6 +93,7 @@ public class RobotPlayer {
         int cost = rc.getCurrentRatCost();
         if (cheese > cost + KING_CHEESE_RESERVE) {
           spawnRat(rc);
+          System.out.println("REPLACE:" + round + ":rat#" + spawnCount);
         }
       }
     }
