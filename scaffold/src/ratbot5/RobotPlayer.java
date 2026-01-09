@@ -430,6 +430,10 @@ public class RobotPlayer {
   private static void runCollector(RobotController rc) throws GameActionException {
     int cheese = rc.getRawCheese();
 
+    if (rc.getRoundNum() % 50 == 0) {
+      System.out.println("COL:" + rc.getRoundNum() + ":" + rc.getID() + ":cheese=" + cheese + " threshold=" + DELIVERY_THRESHOLD);
+    }
+
     // Check bytecode budget
     if (Clock.getBytecodesLeft() < rc.getType().getBytecodeLimit() * 0.1) {
       // Emergency mode - just deliver what we have
@@ -441,6 +445,7 @@ public class RobotPlayer {
     }
 
     if (cheese >= DELIVERY_THRESHOLD) {
+      System.out.println("DELIVER_MODE:" + rc.getRoundNum() + ":" + rc.getID());
       deliver(rc);
     } else {
       collect(rc);
@@ -540,18 +545,24 @@ public class RobotPlayer {
 
     int dist = me.distanceSquaredTo(king);
 
+    // DEBUG: Always log when delivering
+    if (rc.getRoundNum() % 10 == 0) {
+      System.out.println("DELIVER:" + rc.getRoundNum() + ":" + rc.getID() + ":dist=" + dist + " cheese=" + rc.getRawCheese());
+    }
+
     // Transfer if in range
-    if (dist <= 9 && rc.canTransferCheese(king, rc.getRawCheese())) {
-      rc.transferCheese(king, rc.getRawCheese());
-      System.out.println(
-          "TRANSFER:" + rc.getRoundNum() + ":" + rc.getID() + ":amt=" + rc.getRawCheese());
-      return;
+    if (dist <= 9) {
+      int amt = rc.getRawCheese(); // Get amount BEFORE transfer
+      if (rc.canTransferCheese(king, amt)) {
+        rc.transferCheese(king, amt);
+        System.out.println("TRANSFER:" + rc.getRoundNum() + ":" + rc.getID() + ":amt=" + amt);
+        return;
+      } else {
+        System.out.println("TRANSFER_FAIL:" + rc.getRoundNum() + ":" + rc.getID() + ":canTransfer=false");
+      }
     }
 
     // Move toward king
-    if (rc.getRoundNum() % 50 == 0) {
-      System.out.println("DELIVERING:" + rc.getRoundNum() + ":" + rc.getID() + ":dist=" + dist);
-    }
     moveTo(rc, king);
   }
 
