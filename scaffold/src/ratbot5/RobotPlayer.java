@@ -249,24 +249,26 @@ public class RobotPlayer {
 
   private static void collect(RobotController rc) throws GameActionException {
     MapLocation me = rc.getLocation();
-    int visionRange = rc.getType().getVisionRadiusSquared();
 
-    // Find nearest cheese
-    MapLocation[] nearby = rc.getAllLocationsWithinRadiusSquared(me, visionRange);
+    // Scan for cheese - use senseNearbyMapInfos (more efficient)
+    MapInfo[] nearbyInfo = rc.senseNearbyMapInfos();
     MapLocation nearest = null;
     int nearestDist = Integer.MAX_VALUE;
+    int cheeseFound = 0;
 
-    for (MapLocation loc : nearby) {
-      if (rc.canSenseLocation(loc)) {
-        MapInfo info = rc.senseMapInfo(loc);
-        if (info.getCheeseAmount() > 0) {
-          int dist = me.distanceSquaredTo(loc);
-          if (dist < nearestDist) {
-            nearestDist = dist;
-            nearest = loc;
-          }
+    for (MapInfo info : nearbyInfo) {
+      if (info.getCheeseAmount() > 0) {
+        cheeseFound++;
+        int dist = me.distanceSquaredTo(info.getMapLocation());
+        if (dist < nearestDist) {
+          nearestDist = dist;
+          nearest = info.getMapLocation();
         }
       }
+    }
+
+    if (rc.getRoundNum() % 50 == 0) {
+      System.out.println("SCAN:" + rc.getRoundNum() + ":" + rc.getID() + ":found=" + cheeseFound);
     }
 
     // Collect cheese
