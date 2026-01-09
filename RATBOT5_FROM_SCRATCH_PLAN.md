@@ -393,4 +393,29 @@ public class RobotPlayer {
 3. No copying ratbot4 code? (YES - build fresh)
 4. Focus on movement first? (YES - it's the core problem)
 
-Ready to create blank ratbot5/RobotPlayer.java and build it correctly from the javadoc?
+## MISSING JAVADOC FEATURES (To Add to ratbot5)
+
+Currently using 39 of ~80 methods. Missing:
+
+**Phase 1 - Critical Combat** (Add NOW):
+1. `carryRat()`, `throwRat()` - Ratnapping
+2. `bottomLeftDistanceSquaredTo()` - Proper king distance
+3. `isCooperation()` - Game mode adaptation
+
+**Phase 2 - Critical Movement** (Add NOW):
+4. `removeDirt()`, `removeRatTrap()`, `removeCatTrap()` - Clear obstacles
+5. `senseMapInfo()` before moving - Trap detection
+6. `adjacentLocation()` - Check ahead
+
+**Phase 3 - Performance** (Add Soon):
+7. `Clock.getBytecodesLeft()` - Prevent timeout
+8. `Message.getSenderID()`, `getSource()`, `getRound()` - Full metadata
+9. `placeCatTrap()`, `placeRatTrap()` - Defensive traps
+
+**Phase 4 - Advanced** (Add Later):
+10. `becomeRatKing()`, `canBecomeRatKing()` - 2nd king formation
+11. King movement (mobile king)
+
+Implementation order: Phase 1 → Phase 2 → Phase 3 → Phase 4
+
+Ready to implement all missing features?
