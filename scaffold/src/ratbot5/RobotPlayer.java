@@ -193,6 +193,15 @@ public class RobotPlayer {
     // Visual debugging in client
     rc.setIndicatorString((myRole == 0 ? "ATK" : "COL"));
 
+    // Draw indicator line to target (visual debugging)
+    if (myRole == 0) {
+      MapLocation enemyKing = new MapLocation(rc.readSharedArray(2), rc.readSharedArray(3));
+      rc.setIndicatorLine(rc.getLocation(), enemyKing, 255, 0, 0); // Red line to enemy
+    } else if (rc.getRawCheese() >= DELIVERY_THRESHOLD) {
+      MapLocation ourKing = new MapLocation(rc.readSharedArray(0), rc.readSharedArray(1));
+      rc.setIndicatorLine(rc.getLocation(), ourKing, 0, 255, 0); // Green line when delivering
+    }
+
     // Check for 2nd king formation signal
     if (round > 50 && myRole == 1 && rc.canBecomeRatKing()) {
       rc.becomeRatKing(); // Form 2nd king!
