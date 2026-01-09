@@ -378,7 +378,8 @@ public class RobotPlayer {
     // ==================== ATTACK KING ====================
     if (enemyKing != null) {
       MapLocation kingLoc = enemyKing.getLocation();
-      int dist = me.distanceSquaredTo(kingLoc);
+      // Use bottomLeftDistanceSquaredTo for 3x3 king (distance to nearest tile, not center!)
+      int dist = (int) me.bottomLeftDistanceSquaredTo(kingLoc);
 
       // Squeak king location
       try {
