@@ -427,7 +427,6 @@ public class RobotPlayer {
       // Squeak reading failed
     }
 
-
     // Collect cheese
     if (nearest != null) {
       if (rc.canPickUpCheese(nearest)) {
