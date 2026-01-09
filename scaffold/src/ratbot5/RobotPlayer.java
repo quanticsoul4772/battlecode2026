@@ -55,6 +55,7 @@ public class RobotPlayer {
   // ================================================================
 
   private static int spawnCount = 0;
+  private static int trapCount = 0;
 
   private static void runKing(RobotController rc) throws GameActionException {
     int round = rc.getRoundNum();
@@ -85,6 +86,18 @@ public class RobotPlayer {
         int cost = rc.getCurrentRatCost();
         if (cheese > cost + KING_CHEESE_RESERVE) {
           spawnRat(rc);
+        }
+      }
+    }
+
+    // Place defensive traps
+    if (spawnCount >= 10 && trapCount < 5 && cheese > 300) {
+      for (Direction dir : Direction.allDirections()) {
+        MapLocation loc = me.add(dir).add(dir);
+        if (rc.canPlaceCatTrap(loc)) {
+          rc.placeCatTrap(loc);
+          trapCount++;
+          return;
         }
       }
     }
