@@ -419,3 +419,90 @@ Currently using 39 of ~80 methods. Missing:
 Implementation order: Phase 1 → Phase 2 → Phase 3 → Phase 4
 
 Ready to implement all missing features?
+
+---
+
+## Bug2 Pathfinding Implementation (From Javadoc)
+
+### Required Javadoc Methods:
+- `rc.canMove(Direction)` - Check if direction is passable
+- `rc.getLocation()` - Get current position  
+- `Direction.rotateLeft()` - Built-in rotation (90 bytecode savings!)
+- `Direction.rotateRight()` - Built-in rotation
+- `MapLocation.distanceSquaredTo()` - Distance calculation
+- `MapLocation.directionTo()` - Direction to target
+
+### Bug2 Algorithm Structure:
+```java
+// State tracking (static per rat)
+private static MapLocation bugTarget = null;
+private static boolean bugTracing = false;
+private static Direction bugTracingDir = Direction.NORTH;
+private static int bugStartDist = 0;
+
+private static Direction bug2(RobotController rc, MapLocation target) {
+    MapLocation me = rc.getLocation();
+    
+    // Reset if target changed
+    if (bugTarget == null || !bugTarget.equals(target)) {
+        bugTarget = target;
+        bugTracing = false;
+    }
+    
+    Direction toTarget = me.directionTo(target);
+    
+    // Phase 1: Try direct path (greedy)
+    if (!bugTracing && rc.canMove(toTarget)) {
+        return toTarget;
+    }
+    
+    // Phase 2: Start tracing obstacle
+    if (!bugTracing) {
+        bugTracing = true;
+        bugTracingDir = toTarget;
+        bugStartDist = me.distanceSquaredTo(target);
+    }
+    
+    // Phase 3: Follow obstacle edge
+    if (bugTracing) {
+        int curDist = me.distanceSquaredTo(target);
+        
+        // Leave trace if got closer
+        if (curDist < bugStartDist && rc.canMove(toTarget)) {
+            bugTracing = false;
+            return toTarget;
+        }
+        
+        // Rotate around obstacle
+        for (int i = 0; i < 8; i++) {
+            if (rc.canMove(bugTracingDir)) {
+                Direction next = bugTracingDir.rotateLeft();
+                bugTracingDir = next;
+                return bugTracingDir;
+            }
+            bugTracingDir = bugTracingDir.rotateRight();
+        }
+    }
+    
+    return toTarget; // Fallback
+}
+```
+
+### Integration Strategy:
+**Use Bug2 when**:
+- Stuck > 3 rounds (greedy failed)
+- Distance > 30 tiles (long paths need obstacle following)
+- Delivering (critical to reach king)
+
+**Use Greedy when**:
+- Distance < 30 tiles (short, direct paths)
+- First 3 rounds of any journey
+- Bytecode < 1000 (emergency mode)
+
+### Bytecode Cost Estimate:
+- Greedy: ~50 bytecode
+- Bug2: ~300-500 bytecode
+- Worth the cost for reliable navigation
+
+### Implementation in ratbot5:
+Add to `simpleMove()` function as escalation tier
