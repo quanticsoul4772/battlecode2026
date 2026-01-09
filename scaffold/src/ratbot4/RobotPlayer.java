@@ -412,17 +412,33 @@ public class RobotPlayer {
       return;
     }
 
-    // PHASE 2: Read squeaks (only if enough bytecode)
+    // PHASE 2: Read squeaks with metadata filtering
     if (bytecodeLeft > 1000) {
       try {
         Message[] squeaks = rc.readSqueaks(-1);
+        Message freshestKingSqueak = null;
+        int newestRound = 0;
+
         for (Message msg : squeaks) {
-          int rawSqueak = msg.getBytes();
-          if (getSqueakType(rawSqueak) == SqueakType.ENEMY_RAT_KING) {
-            MapLocation squeakedKing = getSqueakLocation(rawSqueak);
-            simpleMove(rc, squeakedKing);
-            return;
+          // Skip our own squeaks (no point processing)
+          if (msg.getSenderID() == id) continue;
+
+          // Prioritize fresh messages (newer = more accurate)
+          if (msg.getRound() > newestRound) {
+            int rawSqueak = msg.getBytes();
+            if (getSqueakType(rawSqueak) == SqueakType.ENEMY_RAT_KING) {
+              freshestKingSqueak = msg;
+              newestRound = msg.getRound();
+            }
           }
+        }
+
+        // Use freshest squeak
+        if (freshestKingSqueak != null) {
+          // Move toward squeak SOURCE (where ally saw king, likely still combat zone)
+          MapLocation combatZone = freshestKingSqueak.getSource();
+          simpleMove(rc, combatZone);
+          return;
         }
       } catch (Exception e) {
         // Squeak reading failed
