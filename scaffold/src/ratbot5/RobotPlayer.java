@@ -154,28 +154,44 @@ public class RobotPlayer {
   // ================================================================
 
   private static void runAttacker(RobotController rc) throws GameActionException {
-    if (!rc.isActionReady()) {
-      if (rc.getRoundNum() % 50 == 0) {
-        System.out.println("ATK_SKIP:" + rc.getRoundNum() + ":" + rc.getID() + ":NOT_READY");
-      }
+    if (!rc.isActionReady()) return;
+
+    // Bytecode check
+    if (Clock.getBytecodesLeft() < rc.getType().getBytecodeLimit() * 0.1) {
+      MapLocation enemyKing = new MapLocation(rc.readSharedArray(2), rc.readSharedArray(3));
+      moveTo(rc, enemyKing);
       return;
     }
 
     MapLocation me = rc.getLocation();
+
+    // Ratnapping - throw if carrying
+    RobotInfo carrying = rc.getCarrying();
+    if (carrying != null && rc.canThrowRat()) {
+      MapLocation ourKing = new MapLocation(rc.readSharedArray(0), rc.readSharedArray(1));
+      Direction toKing = me.directionTo(ourKing);
+      if (rc.getDirection() != toKing && rc.canTurn()) {
+        rc.turn(toKing);
+      } else {
+        rc.throwRat();
+      }
+      return;
+    }
+
     int visionRange = rc.getType().getVisionRadiusSquared();
     RobotInfo[] enemies = rc.senseNearbyRobots(visionRange, rc.getTeam().opponent());
 
-    if (rc.getRoundNum() % 50 == 0) {
-      System.out.println(
-          "ATK:" + rc.getRoundNum() + ":" + rc.getID() + ":enemies=" + enemies.length);
-    }
-
-    // Find best target (most cheese)
+    // Find targets: wounded to ratnap, best to attack
     RobotInfo bestTarget = null;
+    RobotInfo ratnap = null;
     int maxCheese = 0;
 
     for (RobotInfo enemy : enemies) {
       if (enemy.getType().isBabyRatType()) {
+        if (enemy.getHealth() < 50 && ratnap == null) {
+          ratnap = enemy;
+        }
+
         int cheese = enemy.getRawCheeseAmount();
         if (cheese > maxCheese || bestTarget == null) {
           maxCheese = cheese;
@@ -184,44 +200,39 @@ public class RobotPlayer {
       }
     }
 
-    // Attack best target
-    if (bestTarget != null) {
-      if (rc.canAttack(bestTarget.getLocation())) {
-        int globalCheese = rc.getGlobalCheese();
-        if (globalCheese > ENHANCED_THRESHOLD) {
-          rc.attack(bestTarget.getLocation(), ENHANCED_ATTACK_CHEESE);
-        } else {
-          rc.attack(bestTarget.getLocation());
-        }
-        System.out.println("ATTACK_HIT:" + rc.getRoundNum() + ":" + rc.getID());
-        return;
-      } else {
-        if (rc.getRoundNum() % 50 == 0) {
-          System.out.println(
-              "ATTACK_FAIL:" + rc.getRoundNum() + ":" + rc.getID() + ":canAttack=false");
-        }
-      }
+    // Ratnap wounded
+    if (ratnap != null && carrying == null && rc.canCarryRat(ratnap.getLocation())) {
+      rc.carryRat(ratnap.getLocation());
+      return;
     }
 
-    // Attack king if visible
+    // Attack with game mode adaptation
+    boolean coop = rc.isCooperation();
+
+    if (bestTarget != null && rc.canAttack(bestTarget.getLocation())) {
+      if (!coop && rc.getGlobalCheese() > ENHANCED_THRESHOLD) {
+        rc.attack(bestTarget.getLocation(), ENHANCED_ATTACK_CHEESE);
+      } else {
+        rc.attack(bestTarget.getLocation());
+      }
+      return;
+    }
+
+    // Attack king with proper distance
     for (RobotInfo enemy : enemies) {
       if (enemy.getType().isRatKingType()) {
         MapLocation kingCenter = enemy.getLocation();
+        int dist = (int) me.bottomLeftDistanceSquaredTo(kingCenter);
+
         // Attack all 9 king tiles
-        boolean attacked = false;
         for (int dx = -1; dx <= 1; dx++) {
           for (int dy = -1; dy <= 1; dy++) {
             MapLocation tile = new MapLocation(kingCenter.x + dx, kingCenter.y + dy);
             if (rc.canAttack(tile)) {
               rc.attack(tile);
-              System.out.println("KING_HIT:" + rc.getRoundNum() + ":" + rc.getID());
               return;
             }
           }
-        }
-        // King visible but can't attack
-        if (rc.getRoundNum() % 50 == 0) {
-          System.out.println("KING_VISIBLE_NO_ATTACK:" + rc.getRoundNum() + ":" + rc.getID());
         }
       }
     }
