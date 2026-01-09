@@ -1,0 +1,14 @@
+ratbot5 Status:
+
+What works:
+- Attacks working (17 hits)
+- Movement working (no freeze, 0 cooldown)
+- Deliveries working (collectors finding some cheese)
+
+What doesn't work:
+- Only 1 collector finding cheese consistently
+- Other 5-6 collectors finding 0 cheese
+- They're exploring but not finding
+- Need better exploration or cheese mine tracking
+
+Next: Add cheese mine tracking from squeaks or improve exploration pattern
