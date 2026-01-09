@@ -267,6 +267,10 @@ for (Direction dir : Direction.allDirections()) {
 
 **Test**: Does economy sustain? King survives?
 
+## Tuning Approach: Grouped Configuration Sections (Option 2)
+
+**All constants at top, grouped by purpose with safe ranges**
+
 ## Code Structure (Clean Slate)
 
 ```java
@@ -275,6 +279,58 @@ package ratbot5;
 import battlecode.common.*;
 
 public class RobotPlayer {
+    // ================================================================
+    // CONFIGURATION - All tunable parameters grouped by purpose
+    // ================================================================
+
+    // ========== COMBAT CONFIG ==========
+    // Cheese for enhanced attacks (damage = 10 + ceil(log2(cheese)))
+    // RANGE: 4-32 (4=+2 damage, 8=+3, 16=+4, 32=+5)
+    private static final int ENHANCED_ATTACK_CHEESE = 8;
+
+    // Global cheese threshold to use enhanced attacks
+    // RANGE: 300-1000 (lower=aggressive, higher=conservative)
+    private static final int ENHANCED_THRESHOLD = 500;
+
+    // Prioritize targets carrying cheese
+    private static final boolean PRIORITIZE_COLLECTORS = true;
+
+    // ========== POPULATION CONFIG ==========
+    // Initial spawn count (spawned as fast as possible)
+    // RANGE: 8-15 (8=economy focus, 15=combat focus)
+    private static final int INITIAL_SPAWN_COUNT = 12;
+
+    // Maximum total rats to spawn
+    // RANGE: 15-25 (higher=more expensive but more combat power)
+    private static final int MAX_SPAWN_COUNT = 20;
+
+    // Minimum collectors to maintain (instant replacement below this)
+    // RANGE: 3-6 (3=risky economy, 6=very safe)
+    private static final int COLLECTOR_MINIMUM = 4;
+
+    // ========== MOVEMENT CONFIG ==========
+    // Position history size for stuck detection
+    // RANGE: 3-7 (lower=faster detection, higher=more patient)
+    private static final int POSITION_HISTORY_SIZE = 5;
+
+    // Rounds stuck before forcing random movement
+    // RANGE: 2-5 (lower=aggressive recovery, higher=patient)
+    private static final int FORCED_MOVEMENT_THRESHOLD = 3;
+
+    // ========== ECONOMY CONFIG ==========
+    // Cheese to carry before delivering
+    // RANGE: 5-15 (lower=frequent trips, higher=efficient but slower)
+    // NOTE: 1% cooldown penalty per cheese (10 cheese = 10% slower)
+    private static final int DELIVERY_THRESHOLD = 10;
+
+    // King cheese reserve (for survival buffer)
+    // RANGE: 50-200 (= 16-66 rounds at 3 cheese/round)
+    private static final int KING_CHEESE_RESERVE = 100;
+
+    // ================================================================
+    // MAIN LOOP
+    // ================================================================
+
     // === ENTRY POINT ===
     public static void run(RobotController rc) throws GameActionException {
         while (true) {
