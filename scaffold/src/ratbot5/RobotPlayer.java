@@ -313,6 +313,12 @@ public class RobotPlayer {
 
     // Normal movement: turn + forward (10 cd, no strafe)
     Direction desired = me.directionTo(target);
+
+    // Don't try to turn to CENTER (we're at target or very close)
+    if (desired == Direction.CENTER) {
+      return; // Already at target
+    }
+
     Direction facing = rc.getDirection();
 
     if (facing != desired && rc.canTurn()) {
