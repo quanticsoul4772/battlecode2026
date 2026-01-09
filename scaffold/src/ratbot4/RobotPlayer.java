@@ -110,62 +110,15 @@ public class RobotPlayer {
     // JAVA LEARNING: Conditional logic (if/else)
     // First condition checked (spawnCount < 12) takes priority
     // "else if" only executes if first condition is false
-    // ==================== SPAWN DEBUGGING ====================
-    if (round % 10 == 0) {
-      System.out.println("KING:" + round + ":cheese=" + cheese + " spawned=" + spawnCount);
-    }
-
     if (spawnCount < 12) {
       int cost = rc.getCurrentRatCost();
-      if (round % 10 == 0) {
-        System.out.println(
-            "SPAWN_CHECK:"
-                + round
-                + ":phase=INITIAL need="
-                + (12 - spawnCount)
-                + " cost="
-                + cost
-                + " have="
-                + cheese);
-      }
-
       if (cheese > cost + 100) {
         spawnRat(rc);
-        System.out.println("SPAWN:" + round + ":rat#" + spawnCount);
-      } else {
-        if (round % 10 == 0) {
-          System.out.println(
-              "SPAWN_SKIP:"
-                  + round
-                  + ":NOT_ENOUGH_CHEESE need="
-                  + (cost + 100)
-                  + " have="
-                  + cheese);
-        }
       }
     } else if (round % 50 == 0 && spawnCount < 20) {
       int cost = rc.getCurrentRatCost();
-      System.out.println(
-          "SPAWN_CHECK:"
-              + round
-              + ":phase=REPLACEMENT count="
-              + spawnCount
-              + " cost="
-              + cost
-              + " have="
-              + cheese);
-
       if (cheese > cost + 100) {
         spawnRat(rc);
-        System.out.println("SPAWN:" + round + ":REPLACEMENT rat#" + spawnCount);
-      } else {
-        System.out.println(
-            "SPAWN_SKIP:"
-                + round
-                + ":REPLACEMENT NOT_ENOUGH_CHEESE need="
-                + (cost + 100)
-                + " have="
-                + cheese);
       }
     }
 
@@ -281,18 +234,10 @@ public class RobotPlayer {
     // - (id % 3 < 2) ? 0 : 1 for 66% attackers, 33% collectors
     if (myRole == -1) {
       myRole = (id % 2 == 0) ? 0 : 1;
-      String role = (myRole == 0) ? "ATTACK" : "COLLECT";
-      System.out.println("ROLE:" + round + ":" + id + ":" + role);
     }
 
-    // Periodic status logging
     // VISUAL DEBUGGING: Show role above rat in client
     rc.setIndicatorString((myRole == 0 ? "ATK" : "COL"));
-
-    if (round % 10 == 0) {
-      System.out.println(
-          "RAT:" + round + ":" + id + ":pos=" + me + " role=" + (myRole == 0 ? "ATK" : "COL"));
-    }
 
     // Execute role behavior
     if (myRole == 0) {
@@ -320,33 +265,15 @@ public class RobotPlayer {
     int id = rc.getID();
     MapLocation me = rc.getLocation();
 
-    System.out.println("ATTACK:" + round + ":" + id + ":executing");
-
     // SUICIDE IF IDLE TOO LONG
-    // If no attack for 100 rounds, disintegrate to free population slot
     roundsSinceLastAttack++;
     if (roundsSinceLastAttack > 100) {
-      System.out.println(
-          "SUICIDE:" + round + ":" + id + ":idle " + roundsSinceLastAttack + " rounds");
       rc.disintegrate();
       return;
     }
 
     // SCAN FOR ENEMIES
-    // -1 radius means entire vision cone (90° in facing direction)
     RobotInfo[] enemies = rc.senseNearbyRobots(-1, rc.getTeam().opponent());
-
-    if (round % 10 == 0) {
-      System.out.println(
-          "ENEMIES:"
-              + round
-              + ":"
-              + id
-              + ":count="
-              + enemies.length
-              + " idle="
-              + roundsSinceLastAttack);
-    }
 
     // ==================== RATNAPPING ====================
     // Priority 0: Ratnap wounded enemies (HP < 50)
@@ -359,8 +286,6 @@ public class RobotPlayer {
         if (enemy.getType() == UnitType.BABY_RAT && enemy.getHealth() < 50) {
           if (rc.canCarryRat(enemy.getLocation())) {
             rc.carryRat(enemy.getLocation());
-            System.out.println(
-                "RATNAP:" + round + ":" + id + ":grabbed enemy HP=" + enemy.getHealth());
             return;
           }
         }
@@ -378,7 +303,6 @@ public class RobotPlayer {
       }
 
       rc.throwRat();
-      System.out.println("THROW:" + round + ":" + id);
       return;
     }
 
@@ -419,7 +343,7 @@ public class RobotPlayer {
           } else {
             rc.attack(enemyLoc); // Basic attack (10 damage)
           }
-          System.out.println("ATTACK_HIT:" + round + ":" + id);
+          roundsSinceLastAttack = 0;
           return; // Attacked, done for this round
         }
       }
@@ -494,11 +418,6 @@ public class RobotPlayer {
     Direction searchDirection = directions[searchDir];
     MapLocation searchTarget =
         enemyKing.add(searchDirection).add(searchDirection).add(searchDirection);
-
-    if (round % 50 == 0) {
-      System.out.println(
-          "SEARCH:" + round + ":" + id + ":dir=" + searchDirection + " target=" + searchTarget);
-    }
 
     simpleMove(rc, searchTarget);
   }
@@ -655,8 +574,6 @@ public class RobotPlayer {
     // TUNABLE:
     // - stuckRounds >= 2: How patient to be (1 = aggressive, 3 = patient)
     if (stuckRounds >= 2) {
-      System.out.println("STUCK:" + round + ":" + id + ":rounds=" + stuckRounds + " pos=" + me);
-
       // JAVA LEARNING: Array initialization
       // Create array of directions to try in specific order
       // Try perpendicular first (likely less congested)
