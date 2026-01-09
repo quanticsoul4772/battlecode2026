@@ -98,20 +98,26 @@ public class RobotPlayer {
       }
     }
 
-    // Place defensive traps (both cat and rat traps)
-    if (spawnCount >= 10 && trapCount < 10 && cheese > 300) {
+    // Place defensive traps and dirt walls
+    if (spawnCount >= 10 && cheese > 300) {
       for (Direction dir : Direction.allDirections()) {
         MapLocation loc = me.add(dir).add(dir);
 
-        // Place rat traps first (anti-rat defense)
+        // JAVADOC: Place dirt walls first (4 walls max)
+        if (rc.getDirt() < 4 && rc.canPlaceDirt(loc)) {
+          rc.placeDirt(loc);
+          return;
+        }
+
+        // Rat traps (anti-rat, 5 max)
         if (trapCount < 5 && rc.canPlaceRatTrap(loc)) {
           rc.placeRatTrap(loc);
           trapCount++;
           return;
         }
 
-        // Then cat traps (anti-cat defense)
-        if (rc.canPlaceCatTrap(loc)) {
+        // Cat traps (anti-cat, 5 more)
+        if (trapCount < 10 && rc.canPlaceCatTrap(loc)) {
           rc.placeCatTrap(loc);
           trapCount++;
           return;
@@ -190,21 +196,38 @@ public class RobotPlayer {
       myRole = rc.getID() % 2; // 0=attacker, 1=collector
     }
 
-    // Visual debugging in client
-    rc.setIndicatorString((myRole == 0 ? "ATK" : "COL"));
-
-    // Draw indicator line to target (visual debugging)
-    if (myRole == 0) {
-      MapLocation enemyKing = new MapLocation(rc.readSharedArray(2), rc.readSharedArray(3));
-      rc.setIndicatorLine(rc.getLocation(), enemyKing, 255, 0, 0); // Red line to enemy
-    } else if (rc.getRawCheese() >= DELIVERY_THRESHOLD) {
+    // JAVADOC: Use getHealth() to check if low HP
+    int health = rc.getHealth();
+    if (health < 30 && myRole == 1) {
+      // Low health collector - disintegrate near our king to drop cheese
       MapLocation ourKing = new MapLocation(rc.readSharedArray(0), rc.readSharedArray(1));
-      rc.setIndicatorLine(rc.getLocation(), ourKing, 0, 255, 0); // Green line when delivering
+      if (rc.getLocation().distanceSquaredTo(ourKing) <= 9) {
+        rc.disintegrate(); // Drop cheese for king to collect
+        return;
+      }
     }
 
-    // Check for 2nd king formation signal
+    // Visual debugging (comprehensive)
+    rc.setIndicatorString((myRole == 0 ? "ATK" : "COL") + " HP:" + health);
+    rc.setIndicatorDot(rc.getLocation(), health > 50 ? 0 : 255, health > 50 ? 255 : 0, 0);
+
+    // Timeline marker on major events
+    if (round % 100 == 0) {
+      rc.setTimelineMarker("Round " + round, 100, 100, 255);
+    }
+
+    // Draw indicator line to target
+    if (myRole == 0) {
+      MapLocation enemyKing = new MapLocation(rc.readSharedArray(2), rc.readSharedArray(3));
+      rc.setIndicatorLine(rc.getLocation(), enemyKing, 255, 0, 0);
+    } else if (rc.getRawCheese() >= DELIVERY_THRESHOLD) {
+      MapLocation ourKing = new MapLocation(rc.readSharedArray(0), rc.readSharedArray(1));
+      rc.setIndicatorLine(rc.getLocation(), ourKing, 0, 255, 0);
+    }
+
+    // Check for 2nd king formation
     if (round > 50 && myRole == 1 && rc.canBecomeRatKing()) {
-      rc.becomeRatKing(); // Form 2nd king!
+      rc.becomeRatKing();
       return;
     }
 
@@ -246,15 +269,30 @@ public class RobotPlayer {
 
     // Ratnapping - throw if carrying
     RobotInfo carrying = rc.getCarrying();
-    if (carrying != null && rc.canThrowRat()) {
+    if (carrying != null) {
+      // JAVADOC: Check if we can drop rat instead of throwing
       MapLocation ourKing = new MapLocation(rc.readSharedArray(0), rc.readSharedArray(1));
-      Direction toKing = me.directionTo(ourKing);
-      if (rc.getDirection() != toKing && rc.canTurn()) {
-        rc.turn(toKing);
-      } else {
-        rc.throwRat();
+      int distToKing = me.distanceSquaredTo(ourKing);
+
+      // If at our king, drop rat (they take damage when dropped)
+      if (distToKing <= 4) {
+        Direction toKing = me.directionTo(ourKing);
+        if (rc.canDropRat(toKing)) {
+          rc.dropRat(toKing);
+          return;
+        }
       }
-      return;
+
+      // Otherwise throw toward king
+      if (rc.canThrowRat()) {
+        Direction toKing = me.directionTo(ourKing);
+        if (rc.getDirection() != toKing && rc.canTurn()) {
+          rc.turn(toKing);
+        } else {
+          rc.throwRat();
+        }
+        return;
+      }
     }
 
     int visionRange = rc.getType().getVisionRadiusSquared();
@@ -638,16 +676,31 @@ public class RobotPlayer {
         }
       }
 
-      // Path is clear - move forward
-      if (rc.canMoveForward()) {
-        rc.moveForward();
-        return;
+      // JAVADOC: Use canMove to check specific direction before moving
+      if (rc.canMove(desired)) {
+        if (facing == desired && rc.canMoveForward()) {
+          rc.moveForward();
+          return;
+        } else if (rc.canTurn()) {
+          rc.turn(desired);
+          return;
+        }
       }
     }
 
     // Not facing target - turn toward it
     if (facing != desired && rc.canTurn()) {
       rc.turn(desired);
+    }
+
+    // Emergency: If completely stuck, try strafing with move()
+    if (!rc.canMoveForward()) {
+      for (Direction dir : Direction.allDirections()) {
+        if (rc.canMove(dir)) {
+          rc.move(dir); // Use strafe as last resort
+          return;
+        }
+      }
     }
   }
 }
