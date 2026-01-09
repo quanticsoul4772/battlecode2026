@@ -620,14 +620,18 @@ public class RobotPlayer {
 
     // USE BUG2 if stuck too long
     if (stuckRounds >= 3) {
+      System.out.println("BUG2_TRIGGER:" + rc.getRoundNum() + ":" + rc.getID() + ":stuck=" + stuckRounds);
       Direction bug2Dir = bug2(rc, target);
+      System.out.println("BUG2_DIR:" + rc.getRoundNum() + ":" + rc.getID() + ":dir=" + bug2Dir);
       if (bug2Dir != Direction.CENTER) {
         if (rc.getDirection() != bug2Dir && rc.canTurn()) {
           rc.turn(bug2Dir);
+          System.out.println("BUG2_TURN:" + rc.getRoundNum() + ":" + rc.getID());
           return;
         }
         if (rc.canMoveForward()) {
           rc.moveForward();
+          System.out.println("BUG2_MOVE:" + rc.getRoundNum() + ":" + rc.getID());
           return;
         }
       }
