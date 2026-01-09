@@ -1,0 +1,20 @@
+lectureplayer navigation:
+1. canTurn(toKing) → rc.turn(toKing)
+2. canRemoveDirt(nextLoc) → rc.removeDirt(nextLoc)
+3. canMove(toKing) → rc.move(toKing)
+
+Simple: turn, clear, move
+
+Our navigation:
+1. Check isMovementReady
+2. Check obstacles
+3. Use Bug2 if stuck
+4. Try turn+moveForward
+
+Problem: Too complex, failing somewhere
+
+Fix: Copy lectureplayer's simple approach
+- Turn toward target
+- Clear dirt
+- Move toward target
+- DONE

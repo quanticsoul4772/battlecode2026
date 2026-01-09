@@ -1,0 +1,15 @@
+ratbot5 Diagnosis:
+
+What works:
+- Rats stay active entire game (no freeze)
+- Attacks land (39 in 101 rounds)
+- Pickups happen (13 cheese collected)
+
+What doesn't work:
+- Deliveries fail (only 7 transfers)
+- Collectors stuck at dist 17-20 from king
+- Can't navigate final approach to king
+- King starves (HP 500 → 32)
+
+Root cause: Movement system can't close final distance
+Fix needed: Improve navigation to reach king (dist <= 9)

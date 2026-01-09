@@ -1,0 +1,14 @@
+Issue: Collector #13415 stuck at dist=29 for 50+ rounds
+
+Evidence:
+- Round 30-80: dist=29 (not changing)
+- No MOVE_SKIP logs (not cooldown issue)
+- No MOVE_TO logs (moveTo not logging entry)
+- moveTo IS being called (line 566 in deliver)
+
+Conclusion: moveTo is executing but silently failing
+- Not returning early due to cooldown
+- Executing but not producing movement
+- Bug2 not helping
+
+Next: Add logging inside moveTo to see execution path
