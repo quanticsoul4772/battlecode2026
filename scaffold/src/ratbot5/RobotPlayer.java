@@ -29,7 +29,8 @@ public class RobotPlayer {
   private static final int FORCED_MOVEMENT_THRESHOLD = 3; // RANGE: 2-5
 
   // ========== ECONOMY CONFIG ==========
-  private static final int DELIVERY_THRESHOLD = 10; // RANGE: 5-15
+  // TUNED: Lower threshold = more frequent deliveries
+  private static final int DELIVERY_THRESHOLD = 5; // Was 10, now 5 for faster deliveries
   private static final int KING_CHEESE_RESERVE = 100; // RANGE: 50-200
 
   // ================================================================
