@@ -633,7 +633,16 @@ public class RobotPlayer {
           rc.moveForward();
           System.out.println("BUG2_MOVE:" + rc.getRoundNum() + ":" + rc.getID());
           return;
+        } else {
+          // Diagnose why blocked
+          MapLocation ahead = rc.adjacentLocation(rc.getDirection());
+          boolean onMap = rc.onTheMap(ahead);
+          boolean occupied = rc.isLocationOccupied(ahead);
+          boolean passable = rc.canSenseLocation(ahead) ? rc.sensePassability(ahead) : false;
+          System.out.println("BUG2_BLOCKED:" + rc.getRoundNum() + ":" + rc.getID() + ":moveCd=" + rc.getMovementCooldownTurns() + " onMap=" + onMap + " occupied=" + occupied + " passable=" + passable);
         }
+      } else {
+        System.out.println("BUG2_FAIL:" + rc.getRoundNum() + ":" + rc.getID() + ":returned CENTER");
       }
     }
 
