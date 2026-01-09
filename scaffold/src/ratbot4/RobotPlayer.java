@@ -245,10 +245,10 @@ public class RobotPlayer {
     rc.setIndicatorString((myRole == 0 ? "ATK" : "COL"));
 
     // PHASE 4: Check if should form 2nd king
-    if (round > 75 && cheese > 1000 && spawnCount >= 15) {
+    if (round > SECOND_KING_FORMATION_ROUND && cheese > SECOND_KING_CHEESE_REQUIREMENT && spawnCount >= 15) {
       RobotInfo[] allies = rc.senseNearbyRobots(2, rc.getTeam());
       if (allies.length >= 6 && rc.canBecomeRatKing()) {
-        rc.becomeRatKing(); // Form 2nd king! (HP = sum of 7 rats)
+        rc.becomeRatKing();
         return;
       }
     }
@@ -273,6 +273,14 @@ public class RobotPlayer {
   // Goal: Kill enemy rats to reduce their economy and trigger backstab mode
 
   private static int roundsSinceLastAttack = 0;
+
+  // MAGIC NUMBERS: Extract to named constants for clarity
+  private static final int ATTACKER_IDLE_SUICIDE_THRESHOLD = 100; // Rounds before suicide
+  private static final int DELIVERY_TIMEOUT_THRESHOLD = 10; // Rounds stuck before giving up
+  private static final int STUCK_RECOVERY_THRESHOLD = 2; // Rounds before unstuck
+  private static final int CHEESE_ENHANCED_THRESHOLD = 500; // Global cheese for enhanced attacks
+  private static final int SECOND_KING_FORMATION_ROUND = 75; // When to consider forming 2nd king
+  private static final int SECOND_KING_CHEESE_REQUIREMENT = 1000; // Cheese needed for 2nd king
 
   // Cache shared array reads (reused multiple times)
   private static MapLocation cachedOurKing = null;
@@ -301,7 +309,7 @@ public class RobotPlayer {
 
     // Suicide if idle too long
     roundsSinceLastAttack++;
-    if (roundsSinceLastAttack > 100) {
+    if (roundsSinceLastAttack > ATTACKER_IDLE_SUICIDE_THRESHOLD) {
       rc.disintegrate();
       return;
     }
@@ -355,7 +363,7 @@ public class RobotPlayer {
       if (rc.canAttack(enemyLoc)) {
         // OPTIMIZATION: Cache globalCheese, remove duplicate canAttack check
         int globalCheese = rc.getGlobalCheese();
-        if (globalCheese > 500) {
+        if (globalCheese > CHEESE_ENHANCED_THRESHOLD) {
           rc.attack(enemyLoc, 8); // 13 damage (assumes we have 8 cheese)
         } else {
           rc.attack(enemyLoc); // 10 damage
@@ -533,7 +541,7 @@ public class RobotPlayer {
     }
 
     // DELIVERY TIMEOUT
-    if (deliveryStuckCount >= 10 && dist > 50) {
+    if (deliveryStuckCount >= DELIVERY_TIMEOUT_THRESHOLD && dist > 50) {
       deliveryStuckCount = 0;
       collect(rc);
       return;
@@ -581,7 +589,7 @@ public class RobotPlayer {
     //
     // TUNABLE:
     // - stuckRounds >= 2: How patient to be (1 = aggressive, 3 = patient)
-    if (stuckRounds >= 2) {
+    if (stuckRounds >= STUCK_RECOVERY_THRESHOLD) {
       // JAVA LEARNING: Array initialization
       // Create array of directions to try in specific order
       // Try perpendicular first (likely less congested)
