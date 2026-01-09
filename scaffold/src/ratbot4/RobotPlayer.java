@@ -223,7 +223,17 @@ public class RobotPlayer {
 
     // MOVEMENT DEBUG
     if (round % 50 == 0) {
-      System.out.println("RAT:" + round + ":" + id + ":pos=" + me + " moveCd=" + rc.getMovementCooldownTurns() + " actionCd=" + rc.getActionCooldownTurns());
+      System.out.println(
+          "RAT:"
+              + round
+              + ":"
+              + id
+              + ":pos="
+              + me
+              + " moveCd="
+              + rc.getMovementCooldownTurns()
+              + " actionCd="
+              + rc.getActionCooldownTurns());
     }
 
     // ==================== ROLE ASSIGNMENT ====================
@@ -305,7 +315,8 @@ public class RobotPlayer {
     // PHASE 2: Skip if not ready
     if (!rc.isActionReady()) {
       if (round % 50 == 0) {
-        System.out.println("ATK_SKIP:" + round + ":" + id + ":NOT_READY cd=" + rc.getActionCooldownTurns());
+        System.out.println(
+            "ATK_SKIP:" + round + ":" + id + ":NOT_READY cd=" + rc.getActionCooldownTurns());
       }
       return;
     }
@@ -628,7 +639,13 @@ public class RobotPlayer {
     // PHASE 2: Skip if not ready
     if (!rc.isMovementReady()) {
       if (rc.getRoundNum() % 50 == 0) {
-        System.out.println("MOVE_SKIP:" + rc.getRoundNum() + ":" + rc.getID() + ":NOT_READY cd=" + rc.getMovementCooldownTurns());
+        System.out.println(
+            "MOVE_SKIP:"
+                + rc.getRoundNum()
+                + ":"
+                + rc.getID()
+                + ":NOT_READY cd="
+                + rc.getMovementCooldownTurns());
       }
       return;
     }
