@@ -294,8 +294,8 @@ public class RobotPlayer {
     int id = rc.getID();
     MapLocation me = rc.getLocation();
 
-    // PHASE 2: Skip if on cooldown
-    if (rc.getActionCooldownTurns() >= GameConstants.COOLDOWN_LIMIT) {
+    // PHASE 2: Skip if not ready (cleaner than cooldown check)
+    if (!rc.isActionReady()) {
       return;
     }
 
@@ -378,7 +378,6 @@ public class RobotPlayer {
     // ==================== ATTACK KING ====================
     if (enemyKing != null) {
       MapLocation kingLoc = enemyKing.getLocation();
-      // Use bottomLeftDistanceSquaredTo for 3x3 king (distance to nearest tile, not center!)
       int dist = (int) me.bottomLeftDistanceSquaredTo(kingLoc);
 
       // Squeak king location
@@ -389,10 +388,36 @@ public class RobotPlayer {
         // Squeak failed
       }
 
-      if (rc.canAttack(kingLoc)) {
-        rc.attack(kingLoc);
-        roundsSinceLastAttack = 0;
-        return;
+      // CRITICAL FIX: Attack ALL king tiles, not just center!
+      // King is 3x3 (9 tiles) - try attacking whichever tile is adjacent
+      try {
+        MapLocation[] kingTiles = rc.getAllPartLocations(enemyKing);
+        for (MapLocation tile : kingTiles) {
+          if (rc.canAttack(tile)) {
+            // Check game mode for strategy
+            if (rc.isCooperation()) {
+              // Cooperation: conserve cheese
+              rc.attack(tile);
+            } else {
+              // Backstab: use enhanced attacks for points
+              int globalCheese = rc.getGlobalCheese();
+              if (globalCheese > CHEESE_ENHANCED_THRESHOLD) {
+                rc.attack(tile, 8); // 13 damage
+              } else {
+                rc.attack(tile);
+              }
+            }
+            roundsSinceLastAttack = 0;
+            return;
+          }
+        }
+      } catch (Exception e) {
+        // getAllPartLocations failed, try center
+        if (rc.canAttack(kingLoc)) {
+          rc.attack(kingLoc);
+          roundsSinceLastAttack = 0;
+          return;
+        }
       }
 
       // Move toward king
@@ -581,9 +606,9 @@ public class RobotPlayer {
 
   private static void simpleMove(RobotController rc, MapLocation target)
       throws GameActionException {
-    // PHASE 2: Skip if on movement cooldown
-    if (rc.getMovementCooldownTurns() >= GameConstants.COOLDOWN_LIMIT) {
-      return; // Can't move, save bytecode
+    // PHASE 2: Skip if not ready
+    if (!rc.isMovementReady()) {
+      return;
     }
 
     MapLocation me = rc.getLocation();
