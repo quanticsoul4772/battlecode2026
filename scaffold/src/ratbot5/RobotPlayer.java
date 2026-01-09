@@ -635,10 +635,10 @@ public class RobotPlayer {
           return;
         } else {
           // Diagnose why blocked
-          MapLocation ahead = rc.adjacentLocation(rc.getDirection());
-          boolean onMap = rc.onTheMap(ahead);
-          boolean occupied = rc.isLocationOccupied(ahead);
-          boolean passable = rc.canSenseLocation(ahead) ? rc.sensePassability(ahead) : false;
+          MapLocation fwd = rc.adjacentLocation(rc.getDirection());
+          boolean onMap = rc.onTheMap(fwd);
+          boolean occupied = rc.isLocationOccupied(fwd);
+          boolean passable = rc.canSenseLocation(fwd) ? rc.sensePassability(fwd) : false;
           System.out.println("BUG2_BLOCKED:" + rc.getRoundNum() + ":" + rc.getID() + ":moveCd=" + rc.getMovementCooldownTurns() + " onMap=" + onMap + " occupied=" + occupied + " passable=" + passable);
         }
       } else {
