@@ -180,6 +180,11 @@ public class RobotPlayer {
     int round = rc.getRoundNum();
     int id = rc.getID();
 
+    // Check if being thrown or carried (can't act)
+    if (rc.isBeingThrown() || rc.isBeingCarried()) {
+      return; // Wait until released
+    }
+
     // Assign role once
     if (myRole == -1) {
       myRole = rc.getID() % 2; // 0=attacker, 1=collector
