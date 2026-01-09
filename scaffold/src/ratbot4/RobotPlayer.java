@@ -284,10 +284,13 @@ public class RobotPlayer {
     int id = rc.getID();
     MapLocation me = rc.getLocation();
 
-    // PHASE 2: Skip if on cooldown (save bytecode)
+    // PHASE 2: Skip if on cooldown
     if (rc.getActionCooldownTurns() >= GameConstants.COOLDOWN_LIMIT) {
-      return; // Can't act this round
+      return;
     }
+
+    // BYTECODE MONITORING: Check budget before expensive operations
+    int bytecodeLeft = Clock.getBytecodesLeft();
 
     // Cache shared array reads
     if (lastCacheRound != round) {
@@ -398,19 +401,21 @@ public class RobotPlayer {
       return;
     }
 
-    // PHASE 2: Read squeaks from other attackers
-    try {
-      Message[] squeaks = rc.readSqueaks(-1);
-      for (Message msg : squeaks) {
-        int rawSqueak = msg.getBytes();
-        if (getSqueakType(rawSqueak) == SqueakType.ENEMY_RAT_KING) {
-          MapLocation squeakedKing = getSqueakLocation(rawSqueak);
-          simpleMove(rc, squeakedKing);
-          return;
+    // PHASE 2: Read squeaks (only if enough bytecode)
+    if (bytecodeLeft > 1000) {
+      try {
+        Message[] squeaks = rc.readSqueaks(-1);
+        for (Message msg : squeaks) {
+          int rawSqueak = msg.getBytes();
+          if (getSqueakType(rawSqueak) == SqueakType.ENEMY_RAT_KING) {
+            MapLocation squeakedKing = getSqueakLocation(rawSqueak);
+            simpleMove(rc, squeakedKing);
+            return;
+          }
         }
+      } catch (Exception e) {
+        // Squeak reading failed
       }
-    } catch (Exception e) {
-      // Squeak reading failed
     }
 
     // NO ENEMIES VISIBLE: SEARCH FOR KING (don't all cluster at same spot!)
@@ -633,17 +638,19 @@ public class RobotPlayer {
 
     // GREEDY MOVEMENT
     if (rc.canMove(desired)) {
-      // PHASE 3: Check for traps before moving
-      MapLocation nextLoc = me.add(desired);
-      if (rc.canSenseLocation(nextLoc)) {
-        MapInfo nextInfo = rc.senseMapInfo(nextLoc);
-        if (nextInfo.getTrap() != TrapType.NONE) {
-          // Enemy trap ahead! Try perpendicular to avoid
-          Direction[] avoidTrap = {rotateLeft(desired), rotateRight(desired)};
-          for (Direction alt : avoidTrap) {
-            if (rc.canMove(alt)) {
-              rc.move(alt);
-              return;
+      // PHASE 3: Check for traps (only if enough bytecode)
+      if (Clock.getBytecodesLeft() > 500) {
+        MapLocation nextLoc = me.add(desired);
+        if (rc.canSenseLocation(nextLoc)) {
+          MapInfo nextInfo = rc.senseMapInfo(nextLoc);
+          if (nextInfo.getTrap() != TrapType.NONE) {
+            // Enemy trap! Try perpendicular
+            Direction[] avoidTrap = {rotateLeft(desired), rotateRight(desired)};
+            for (Direction alt : avoidTrap) {
+              if (rc.canMove(alt)) {
+                rc.move(alt);
+                return;
+              }
             }
           }
         }
