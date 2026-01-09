@@ -716,33 +716,16 @@ public class RobotPlayer {
     }
   }
 
-  // Helper functions for direction manipulation
+  // Use Direction built-in methods (saves 90 bytecode per call vs our loop)
   private static Direction rotateLeft(Direction d) {
-    int idx = 0;
-    for (int i = 0; i < 8; i++) {
-      if (directions[i] == d) {
-        idx = i;
-        break;
-      }
-    }
-    return directions[(idx + 7) % 8];
+    return d.rotateLeft();
   }
 
   private static Direction rotateRight(Direction d) {
-    int idx = 0;
-    for (int i = 0; i < 8; i++) {
-      if (directions[i] == d) {
-        idx = i;
-        break;
-      }
-    }
-    return directions[(idx + 1) % 8];
+    return d.rotateRight();
   }
 
-  private static final Direction[] directions = {
-    Direction.NORTH, Direction.NORTHEAST, Direction.EAST, Direction.SOUTHEAST,
-    Direction.SOUTH, Direction.SOUTHWEST, Direction.WEST, Direction.NORTHWEST
-  };
+  private static final Direction[] directions = Direction.allDirections();
 
   // ================================================================
   // SQUEAK COMMUNICATION (Phase 1: Infrastructure)
