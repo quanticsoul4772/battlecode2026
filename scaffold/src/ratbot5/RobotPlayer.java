@@ -260,6 +260,10 @@ public class RobotPlayer {
     int visionRange = rc.getType().getVisionRadiusSquared();
     RobotInfo[] enemies = rc.senseNearbyRobots(visionRange, rc.getTeam().opponent());
 
+    if (rc.getRoundNum() % 50 == 0) {
+      System.out.println("ATK_ENEMIES:" + rc.getRoundNum() + ":" + rc.getID() + ":count=" + enemies.length);
+    }
+
     // Find targets: wounded to ratnap, best to attack
     RobotInfo bestTarget = null;
     RobotInfo ratnap = null;
