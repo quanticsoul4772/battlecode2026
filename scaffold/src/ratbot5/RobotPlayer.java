@@ -418,9 +418,6 @@ public class RobotPlayer {
       // Squeak reading failed
     }
 
-    if (rc.getRoundNum() % 50 == 0) {
-      System.out.println("SCAN:" + rc.getRoundNum() + ":" + rc.getID() + ":found=" + cheeseFound);
-    }
 
     // Collect cheese
     if (nearest != null) {
