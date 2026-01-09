@@ -251,15 +251,25 @@ public class RobotPlayer {
     MapLocation me = rc.getLocation();
     int visionRange = rc.getType().getVisionRadiusSquared();
 
-    // CRITICAL FIX: Use center+radius to scan full area, not just 90° vision cone!
-    // senseNearbyMapInfos() only scans facing direction
-    // senseNearbyMapInfos(me, radius) scans full circle
+    // Scan for cheese AND cheese mines
     MapInfo[] nearbyInfo = rc.senseNearbyMapInfos(me, visionRange);
     MapLocation nearest = null;
     int nearestDist = Integer.MAX_VALUE;
     int cheeseFound = 0;
 
     for (MapInfo info : nearbyInfo) {
+      // SQUEAK cheese mine locations (from javadoc/lectureplayer)
+      if (info.hasCheeseMine()) {
+        try {
+          MapLocation mineLoc = info.getMapLocation();
+          int squeak = (3 << 28) | (mineLoc.y << 16) | (mineLoc.x << 4);
+          rc.squeak(squeak);
+          System.out.println("MINE_SQUEAK:" + rc.getRoundNum() + ":" + rc.getID() + ":loc=" + mineLoc);
+        } catch (Exception e) {
+          // Squeak failed
+        }
+      }
+
       if (info.getCheeseAmount() > 0) {
         cheeseFound++;
         int dist = me.distanceSquaredTo(info.getMapLocation());
@@ -268,6 +278,28 @@ public class RobotPlayer {
           nearest = info.getMapLocation();
         }
       }
+    }
+
+    // READ squeaks to learn about cheese mines from other collectors
+    try {
+      Message[] squeaks = rc.readSqueaks(-1);
+      for (Message msg : squeaks) {
+        int bytes = msg.getBytes();
+        int type = (bytes >> 28) & 0xF;
+        if (type == 3) { // Cheese mine squeak
+          int x = (bytes >> 4) & 0xFFF;
+          int y = (bytes >> 16) & 0xFFF;
+          MapLocation mineLoc = new MapLocation(x, y);
+          int dist = me.distanceSquaredTo(mineLoc);
+          // If closer than current target, go to this mine
+          if (nearest == null || dist < nearestDist) {
+            nearest = mineLoc;
+            nearestDist = dist;
+          }
+        }
+      }
+    } catch (Exception e) {
+      // Squeak reading failed
     }
 
     if (rc.getRoundNum() % 50 == 0) {
