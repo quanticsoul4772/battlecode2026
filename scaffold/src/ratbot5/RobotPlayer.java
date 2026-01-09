@@ -341,32 +341,36 @@ public class RobotPlayer {
     MapLocation me = rc.getLocation();
     int visionRange = rc.getType().getVisionRadiusSquared();
 
-    // Scan for cheese AND cheese mines
-    MapInfo[] nearbyInfo = rc.senseNearbyMapInfos(me, visionRange);
+    // Use getAllLocationsWithinRadiusSquared for complete area scan
+    MapLocation[] allLocs = rc.getAllLocationsWithinRadiusSquared(me, visionRange);
     MapLocation nearest = null;
     int nearestDist = Integer.MAX_VALUE;
     int cheeseFound = 0;
+    int minesFound = 0;
 
-    for (MapInfo info : nearbyInfo) {
-      // SQUEAK cheese mine locations (from javadoc/lectureplayer)
-      if (info.hasCheeseMine()) {
-        try {
-          MapLocation mineLoc = info.getMapLocation();
-          int squeak = (3 << 28) | (mineLoc.y << 16) | (mineLoc.x << 4);
-          rc.squeak(squeak);
-          System.out.println(
-              "MINE_SQUEAK:" + rc.getRoundNum() + ":" + rc.getID() + ":loc=" + mineLoc);
-        } catch (Exception e) {
-          // Squeak failed
+    for (MapLocation loc : allLocs) {
+      if (rc.canSenseLocation(loc)) {
+        MapInfo info = rc.senseMapInfo(loc);
+
+        // Squeak mine locations (only once per mine)
+        if (info.hasCheeseMine() && minesFound == 0) {
+          try {
+            int squeak = (3 << 28) | (loc.y << 16) | (loc.x << 4);
+            rc.squeak(squeak);
+            minesFound++;
+          } catch (Exception e) {
+            // Squeak failed
+          }
         }
-      }
 
-      if (info.getCheeseAmount() > 0) {
-        cheeseFound++;
-        int dist = me.distanceSquaredTo(info.getMapLocation());
-        if (dist < nearestDist) {
-          nearestDist = dist;
-          nearest = info.getMapLocation();
+        // Find nearest cheese
+        if (info.getCheeseAmount() > 0) {
+          cheeseFound++;
+          int dist = me.distanceSquaredTo(loc);
+          if (dist < nearestDist) {
+            nearestDist = dist;
+            nearest = loc;
+          }
         }
       }
     }
@@ -424,16 +428,7 @@ public class RobotPlayer {
         moveTo(rc, nearest);
       }
     } else {
-      if (rc.getRoundNum() % 50 == 0) {
-        System.out.println(
-            "NO_CHEESE_EXPLORE:"
-                + rc.getRoundNum()
-                + ":"
-                + rc.getID()
-                + ":scanned="
-                + nearbyInfo.length);
-      }
-      // Explore toward center
+      // No cheese - explore
       MapLocation center = new MapLocation(rc.getMapWidth() / 2, rc.getMapHeight() / 2);
       moveTo(rc, center);
     }
