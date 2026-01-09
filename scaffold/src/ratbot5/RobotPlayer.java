@@ -575,7 +575,12 @@ public class RobotPlayer {
   private static int stuckRounds = 0;
 
   private static void moveTo(RobotController rc, MapLocation target) throws GameActionException {
-    if (!rc.isMovementReady()) return;
+    if (!rc.isMovementReady()) {
+      if (rc.getRoundNum() % 10 == 0) {
+        System.out.println("MOVE_SKIP:" + rc.getRoundNum() + ":" + rc.getID() + ":cd=" + rc.getMovementCooldownTurns());
+      }
+      return;
+    }
 
     MapLocation me = rc.getLocation();
 
