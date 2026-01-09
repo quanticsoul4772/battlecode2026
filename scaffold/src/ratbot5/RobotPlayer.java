@@ -261,7 +261,8 @@ public class RobotPlayer {
     RobotInfo[] enemies = rc.senseNearbyRobots(visionRange, rc.getTeam().opponent());
 
     if (rc.getRoundNum() % 50 == 0) {
-      System.out.println("ATK_ENEMIES:" + rc.getRoundNum() + ":" + rc.getID() + ":count=" + enemies.length);
+      System.out.println(
+          "ATK_ENEMIES:" + rc.getRoundNum() + ":" + rc.getID() + ":count=" + enemies.length);
     }
 
     // Find targets: wounded to ratnap, best to attack
@@ -294,7 +295,13 @@ public class RobotPlayer {
 
     if (bestTarget != null) {
       if (rc.getRoundNum() % 50 == 0) {
-        System.out.println("ATK_TARGET:" + rc.getRoundNum() + ":" + rc.getID() + ":canAttack=" + rc.canAttack(bestTarget.getLocation()));
+        System.out.println(
+            "ATK_TARGET:"
+                + rc.getRoundNum()
+                + ":"
+                + rc.getID()
+                + ":canAttack="
+                + rc.canAttack(bestTarget.getLocation()));
       }
 
       if (rc.canAttack(bestTarget.getLocation())) {
