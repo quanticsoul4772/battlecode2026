@@ -275,18 +275,16 @@ public class RobotPlayer {
     if (nearest != null) {
       if (rc.canPickUpCheese(nearest)) {
         rc.pickUpCheese(nearest);
-        if (rc.getRoundNum() % 10 == 0) {
-          System.out.println("PICKUP:" + rc.getRoundNum() + ":" + rc.getID());
-        }
+        System.out.println("PICKUP:" + rc.getRoundNum() + ":" + rc.getID() + ":now=" + rc.getRawCheese());
       } else {
         if (rc.getRoundNum() % 50 == 0) {
-          System.out.println("MOVE_TO_CHEESE:" + rc.getRoundNum() + ":" + rc.getID());
+          System.out.println("MOVE_TO_CHEESE:" + rc.getRoundNum() + ":" + rc.getID() + ":dist=" + nearestDist);
         }
         moveTo(rc, nearest);
       }
     } else {
       if (rc.getRoundNum() % 50 == 0) {
-        System.out.println("NO_CHEESE_EXPLORE:" + rc.getRoundNum() + ":" + rc.getID());
+        System.out.println("NO_CHEESE_EXPLORE:" + rc.getRoundNum() + ":" + rc.getID() + ":scanned=" + nearbyInfo.length);
       }
       // Explore toward center
       MapLocation center = new MapLocation(rc.getMapWidth() / 2, rc.getMapHeight() / 2);
