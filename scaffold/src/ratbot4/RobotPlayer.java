@@ -245,7 +245,9 @@ public class RobotPlayer {
     rc.setIndicatorString((myRole == 0 ? "ATK" : "COL"));
 
     // PHASE 4: Check if should form 2nd king
-    if (round > SECOND_KING_FORMATION_ROUND && cheese > SECOND_KING_CHEESE_REQUIREMENT && spawnCount >= 15) {
+    if (round > SECOND_KING_FORMATION_ROUND
+        && cheese > SECOND_KING_CHEESE_REQUIREMENT
+        && spawnCount >= 15) {
       RobotInfo[] allies = rc.senseNearbyRobots(2, rc.getTeam());
       if (allies.length >= 6 && rc.canBecomeRatKing()) {
         rc.becomeRatKing();
