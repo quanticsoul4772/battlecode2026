@@ -432,9 +432,18 @@ public class RobotPlayer {
         MapLocation kingLoc = enemy.getLocation();
         int dist = me.distanceSquaredTo(kingLoc);
 
+        // PHASE 2: Squeak enemy king location to coordinate other attackers
+        try {
+          int squeak = encodeSqueak(SqueakType.ENEMY_RAT_KING, kingLoc.x, kingLoc.y, 0);
+          rc.squeak(squeak);
+        } catch (Exception e) {
+          // Squeak failed, continue anyway
+        }
+
         // If adjacent and can attack, do it
         if (rc.canAttack(kingLoc)) {
           rc.attack(kingLoc);
+          roundsSinceLastAttack = 0;
           return;
         }
 
@@ -459,6 +468,21 @@ public class RobotPlayer {
         simpleMove(rc, kingLoc);
         return;
       }
+    }
+
+    // PHASE 2: Read squeaks from other attackers
+    try {
+      Message[] squeaks = rc.readSqueaks(-1);
+      for (Message msg : squeaks) {
+        int rawSqueak = msg.getBytes();
+        if (getSqueakType(rawSqueak) == SqueakType.ENEMY_RAT_KING) {
+          MapLocation squeakedKing = getSqueakLocation(rawSqueak);
+          simpleMove(rc, squeakedKing);
+          return;
+        }
+      }
+    } catch (Exception e) {
+      // Squeak reading failed
     }
 
     // NO ENEMIES VISIBLE: SEARCH FOR KING (don't all cluster at same spot!)
@@ -517,6 +541,17 @@ public class RobotPlayer {
     for (MapLocation loc : nearby) {
       if (rc.canSenseLocation(loc)) {
         MapInfo info = rc.senseMapInfo(loc);
+
+        // PHASE 3: Squeak cheese mine location
+        if (info.hasCheeseMine()) {
+          try {
+            int squeak = encodeSqueak(SqueakType.CHEESE_MINE, loc.x, loc.y, 0);
+            rc.squeak(squeak);
+          } catch (Exception e) {
+            // Squeak failed, continue
+          }
+        }
+
         if (info.getCheeseAmount() > 0) {
           int dist = me.distanceSquaredTo(loc);
           if (dist < nearestDist) {
