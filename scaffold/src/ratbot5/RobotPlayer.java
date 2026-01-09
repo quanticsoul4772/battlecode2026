@@ -109,6 +109,28 @@ public class RobotPlayer {
         }
       }
     }
+
+    // King movement - mobile king harder to kill
+    RobotInfo[] threats = rc.senseNearbyRobots(25, Team.NEUTRAL);
+    RobotInfo[] enemies = rc.senseNearbyRobots(25, rc.getTeam().opponent());
+
+    // Only move if safe
+    if (threats.length == 0 && enemies.length == 0) {
+      MapLocation ahead = rc.adjacentLocation(rc.getDirection());
+
+      // Clear obstacles
+      if (rc.canRemoveDirt(ahead)) {
+        rc.removeDirt(ahead);
+      }
+
+      // Move slowly
+      if (round % 2 == 0 && rc.canMoveForward()) {
+        rc.moveForward();
+      } else if (rc.canTurn() && round % 10 == 0) {
+        Direction newDir = Direction.allDirections()[(round / 10) % 8];
+        rc.turn(newDir);
+      }
+    }
   }
 
   private static void spawnRat(RobotController rc) throws GameActionException {
