@@ -14,8 +14,9 @@ public class RobotPlayer {
   // ================================================================
 
   // ========== COMBAT CONFIG ==========
-  private static final int ENHANCED_ATTACK_CHEESE = 8; // RANGE: 4-32
-  private static final int ENHANCED_THRESHOLD = 500; // RANGE: 300-1000
+  // TUNED: More aggressive combat
+  private static final int ENHANCED_ATTACK_CHEESE = 16; // Was 8, now 16 for 14 damage
+  private static final int ENHANCED_THRESHOLD = 300; // Was 500, now 300 for more enhanced attacks
 
   // ========== POPULATION CONFIG ==========
   private static final int INITIAL_SPAWN_COUNT = 12; // RANGE: 8-15
