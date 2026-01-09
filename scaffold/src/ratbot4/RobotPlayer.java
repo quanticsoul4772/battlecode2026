@@ -129,13 +129,21 @@ public class RobotPlayer {
     }
 
     // ==================== KING MOVEMENT ====================
-    // ONLY move if safe (no cats or enemy rats nearby)
-    RobotInfo[] threats = rc.senseNearbyRobots(25, Team.NEUTRAL); // Check for cats (5 tile radius)
-    RobotInfo[] enemyRats =
-        rc.senseNearbyRobots(25, rc.getTeam().opponent()); // Check for enemy rats
+    // Cache sensing: scan once, check for both cats and enemy rats
+    RobotInfo[] nearbyRobots = rc.senseNearbyRobots(25, null); // All robots within 5 tiles
+    boolean hasCats = false;
+    boolean hasEnemies = false;
 
-    // STAY STILL if any threats nearby (safety first!)
-    if (threats.length == 0 && enemyRats.length == 0) {
+    for (RobotInfo robot : nearbyRobots) {
+      if (robot.getTeam() == Team.NEUTRAL) {
+        hasCats = true;
+      } else if (robot.getTeam() == rc.getTeam().opponent()) {
+        hasEnemies = true;
+      }
+    }
+
+    // STAY STILL if any threats nearby
+    if (!hasCats && !hasEnemies) {
       MapLocation ahead = rc.adjacentLocation(rc.getDirection());
 
       // Clear obstacles
