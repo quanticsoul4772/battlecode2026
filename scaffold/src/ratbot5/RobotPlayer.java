@@ -30,7 +30,7 @@ public class RobotPlayer {
   private static final int ENHANCED_ATTACK_CHEESE = 16;
   private static final int ENHANCED_THRESHOLD = 300;
   private static final int SMALL_MAP_ENHANCED_THRESHOLD = 100;
-  private static final int FOCUS_FIRE_STALE_ROUNDS = 3;
+  private static final int FOCUS_FIRE_STALE_ROUNDS = 2;
 
   // ========== KITING CONFIG ==========
   private static final int KITE_STATE_APPROACH = 0;
@@ -41,7 +41,7 @@ public class RobotPlayer {
 
   // ========== OVERKILL PREVENTION ==========
   private static final int OVERKILL_HP_THRESHOLD =
-      30; // Don't attack if HP < this and allies nearby
+      20; // Don't attack if HP < this and allies nearby
 
   // ========== RETREAT COORDINATION ==========
   private static final int RETREAT_HP_RATIO_THRESHOLD = 40; // Retreat if our HP < 40% of enemy
@@ -61,6 +61,8 @@ public class RobotPlayer {
   private static final int PHASE_MID = 1;
   private static final int PHASE_LATE = 2;
   private static final int EARLY_PHASE_END_ROUND = 50;
+  private static final int MEDIUM_MAP_EARLY_PHASE_END_ROUND =
+      80; // Extended early phase for medium maps
   private static final int MID_PHASE_END_ROUND = 200;
   private static final int LOW_CHEESE_THRESHOLD = 300;
   private static final int HIGH_CHEESE_THRESHOLD = 800;
@@ -73,11 +75,14 @@ public class RobotPlayer {
   // ========== SWARMING CONFIG ==========
   private static final int SWARM_FLANK_DIST = 6;
   private static final int SWARM_ENGAGE_DIST_SQ = 64;
-  private static final int MIN_FLANK_COUNT = 2; // Rebalance if flank < 2 rats
+  private static final int MIN_FLANK_COUNT = 1; // Rebalance if flank has 0 rats
 
   // ========== POPULATION CONFIG ==========
   private static final int INITIAL_SPAWN_COUNT = 10;
   private static final int CONTINUOUS_SPAWN_RESERVE = 400;
+  private static final int MEDIUM_MAP_CONTINUOUS_RESERVE = 100; // Very aggressive on medium maps
+  private static final int MEDIUM_MAP_SPAWN_COOLDOWN = 1; // Spawn every round on medium maps
+  private static final int MEDIUM_MAP_ALL_ATTACK_ROUNDS = 40; // All rats attack for first 40 rounds
   private static final int COLLECTOR_MINIMUM = 3;
   private static final int SMALL_MAP_INITIAL_SPAWN = 10;
   private static final int SMALL_MAP_COLLECTOR_MIN = 2;
@@ -95,10 +100,12 @@ public class RobotPlayer {
   private static final int LOW_BYTECODE_THRESHOLD = 800;
 
   // ========== ECONOMY CONFIG ==========
-  private static final int DELIVERY_THRESHOLD = 5;
+  private static final int DELIVERY_THRESHOLD = 12;
+  private static final int MEDIUM_MAP_DELIVERY_THRESHOLD =
+      8; // Faster cheese delivery on medium maps
   private static final int KING_CHEESE_RESERVE = 100;
   private static final int SMALL_MAP_KING_RESERVE = 50;
-  private static final int CHEESE_SENSE_RADIUS_SQ = 10;
+  private static final int CHEESE_SENSE_RADIUS_SQ = 20;
   private static final int GOOD_ENOUGH_CHEESE_DIST_SQ = 8;
 
   // ========== THROTTLE CONFIG ==========
@@ -115,6 +122,7 @@ public class RobotPlayer {
   private static final int CAT_TRAP_END_ROUND = 40;
 
   // ========== RAT DEFENSE CONFIG ==========
+  private static final int ALLY_MIN_DIST_SQ = 4; // Prevent clumping
   private static final int RAT_TRAP_EARLY_TARGET = 10;
   private static final int SMALL_MAP_RAT_TRAP_TARGET = 3;
   private static final int RAT_TRAP_EARLY_WINDOW = 15;
@@ -152,6 +160,8 @@ public class RobotPlayer {
   // Slot 16-19: Flank counts (center, left, right, reserve)
   // Slot 20: Cat damage accumulated (for game theory)
   // Slot 21: Chokepoint traps placed
+  // Slot 34: Enemy king estimated HP
+  // Slot 35: Rally point for retreat (packed X,Y)
 
   // ================================================================
   // BYTECODE-OPTIMIZED CONSTANTS
@@ -305,6 +315,15 @@ public class RobotPlayer {
   private static int cachedLeftCount = 0;
   private static int cachedRightCount = 0;
 
+  // Cached swarm flank locations (avoid allocation)
+  private static MapLocation cachedLeftFlankLoc = null;
+  private static MapLocation cachedRightFlankLoc = null;
+  private static int lastFlankLocRound = -1;
+
+  // Rally point for retreat
+  private static MapLocation cachedRallyPoint = null;
+  private static int cachedEnemyKingHP = 100; // Estimated enemy king HP
+
   // Kiting state (per robot)
   private static int kiteState = KITE_STATE_APPROACH;
   private static int lastKiteID = -1;
@@ -420,6 +439,20 @@ public class RobotPlayer {
     cachedCenterCount = rc.readSharedArray(16);
     cachedLeftCount = rc.readSharedArray(17);
     cachedRightCount = rc.readSharedArray(18);
+
+    // Enemy king HP (slot 34)
+    int enemyHP = rc.readSharedArray(34);
+    if (enemyHP > 0) cachedEnemyKingHP = enemyHP;
+
+    // Rally point (slot 35)
+    int rallyPacked = rc.readSharedArray(35);
+    if (rallyPacked > 0) {
+      int rx = rallyPacked & 0x3F;
+      int ry = (rallyPacked >> 6) & 0x3F;
+      if (cachedRallyPoint == null || cachedRallyPoint.x != rx || cachedRallyPoint.y != ry) {
+        cachedRallyPoint = new MapLocation(rx, ry);
+      }
+    }
   }
 
   // ================================================================
@@ -445,6 +478,9 @@ public class RobotPlayer {
    * Predict where an enemy will be based on recent sightings. Uses velocity estimation from ring
    * buffer.
    */
+  // Reusable MapLocation for prediction to avoid allocation
+  private static MapLocation predictedLoc = null;
+
   private static MapLocation predictEnemyPosition(MapLocation currentLoc, int currentRound) {
     // Find two most recent sightings of enemies near this location
     int bestIdx1 = -1, bestIdx2 = -1;
@@ -495,7 +531,11 @@ public class RobotPlayer {
         if (predictY < 0) predictY = 0;
         if (predictY >= mapHeight) predictY = mapHeight - 1;
 
-        return new MapLocation(predictX, predictY);
+        // Only allocate if position changed
+        if (predictedLoc == null || predictedLoc.x != predictX || predictedLoc.y != predictY) {
+          predictedLoc = new MapLocation(predictX, predictY);
+        }
+        return predictedLoc;
       }
     }
 
@@ -687,6 +727,8 @@ public class RobotPlayer {
         continuousReserve = EMERGENCY_SPAWN_RESERVE;
       } else if (smallMap) {
         continuousReserve = SMALL_MAP_CONTINUOUS_RESERVE;
+      } else if (mapSize == 1) {
+        continuousReserve = MEDIUM_MAP_CONTINUOUS_RESERVE; // More aggressive on medium maps
       } else {
         continuousReserve = CONTINUOUS_SPAWN_RESERVE;
       }
@@ -696,6 +738,8 @@ public class RobotPlayer {
         spawnCooldown = 1;
       } else if (smallMap) {
         spawnCooldown = 1;
+      } else if (mapSize == 1) {
+        spawnCooldown = MEDIUM_MAP_SPAWN_COOLDOWN; // Aggressive spawning on medium maps
       } else if (healthyArmy) {
         spawnCooldown = SPAWN_COOLDOWN_ROUNDS + 1;
       } else {
@@ -849,6 +893,14 @@ public class RobotPlayer {
       }
     }
 
+    // UPDATE RALLY POINT: Strategic retreat position (between king and center)
+    if ((round & 15) == 0) { // Every 16 rounds
+      int rallyX = (me.x + cachedMapCenter.x) / 2;
+      int rallyY = (me.y + cachedMapCenter.y) / 2;
+      int rallyPacked = (rallyX & 0x3F) | ((rallyY & 0x3F) << 6);
+      rc.writeSharedArray(35, rallyPacked);
+    }
+
     // KING ATTACKS
     if (closestEnemy != null && rc.isActionReady()) {
       MapLocation enemyLoc = closestEnemy.getLocation();
@@ -998,6 +1050,9 @@ public class RobotPlayer {
       int score = (damage * 100) / ((distToKing + 1) * (hp + 1));
       if (hp <= 30) score += 50;
       if (hp <= 15) score += 100;
+      // Attack range bonus: prefer targets we can hit immediately
+      if (distToKing <= 2) score += 40;
+      else if (distToKing <= 5) score += 20;
       if (score > bestScore) {
         bestScore = score;
         bestTarget = enemy;
@@ -1029,20 +1084,24 @@ public class RobotPlayer {
       // More aggressive - more attackers
       phase = PHASE_MID;
       attackerRatio = 8; // 80% attackers
-    } else if (round < EARLY_PHASE_END_ROUND) {
-      phase = PHASE_EARLY;
-      attackerRatio = EARLY_ATTACKER_RATIO;
-    } else if (round < MID_PHASE_END_ROUND) {
-      phase = PHASE_MID;
-      attackerRatio = MID_ATTACKER_RATIO;
     } else {
-      phase = PHASE_LATE;
-      if (cheese < LOW_CHEESE_THRESHOLD) {
-        attackerRatio = LATE_POOR_ATTACKER_RATIO;
-      } else if (cheese > HIGH_CHEESE_THRESHOLD) {
-        attackerRatio = LATE_RICH_ATTACKER_RATIO;
+      // Use extended early phase for medium maps
+      int earlyPhaseEnd = (mapSize == 1) ? MEDIUM_MAP_EARLY_PHASE_END_ROUND : EARLY_PHASE_END_ROUND;
+      if (round < earlyPhaseEnd) {
+        phase = PHASE_EARLY;
+        attackerRatio = EARLY_ATTACKER_RATIO;
+      } else if (round < MID_PHASE_END_ROUND) {
+        phase = PHASE_MID;
+        attackerRatio = MID_ATTACKER_RATIO;
       } else {
-        attackerRatio = LATE_NORMAL_ATTACKER_RATIO;
+        phase = PHASE_LATE;
+        if (cheese < LOW_CHEESE_THRESHOLD) {
+          attackerRatio = LATE_POOR_ATTACKER_RATIO;
+        } else if (cheese > HIGH_CHEESE_THRESHOLD) {
+          attackerRatio = LATE_RICH_ATTACKER_RATIO;
+        } else {
+          attackerRatio = LATE_NORMAL_ATTACKER_RATIO;
+        }
       }
     }
 
@@ -1159,13 +1218,15 @@ public class RobotPlayer {
    * Check if a location is a chokepoint (narrow passage). A chokepoint has CHOKEPOINT_MIN_BLOCKED
    * or more impassable neighbors, forcing enemies to pass through a limited area.
    */
-  private static boolean isChokepoint(RobotController rc, MapLocation loc)
-      throws GameActionException {
-    if (!rc.canSenseLocation(loc)) return false;
-    MapInfo info = rc.senseMapInfo(loc);
+  /**
+   * Check if a location is a chokepoint using pre-sensed MapInfo. A chokepoint has
+   * CHOKEPOINT_MIN_BLOCKED or more impassable neighbors.
+   */
+  private static boolean isChokepoint(RobotController rc, MapInfo info) throws GameActionException {
     if (!info.isPassable()) return false; // Can't place trap on impassable tile
     if (info.getTrap() != TrapType.NONE) return false; // Already has a trap
 
+    MapLocation loc = info.getMapLocation();
     int blockedCount = 0;
     for (int i = 0; i < 8; i++) { // Skip CENTER (index 8)
       Direction dir = DIRS[i];
@@ -1206,8 +1267,8 @@ public class RobotPlayer {
       if (toTile == Direction.CENTER) continue;
       if (toTile == toEnemy.opposite()) continue; // Skip tiles behind us
 
-      // Check if it's a chokepoint
-      if (!isChokepoint(rc, tileLoc)) continue;
+      // Check if it's a chokepoint (pass MapInfo to avoid re-sensing)
+      if (!isChokepoint(rc, nearbyTiles[i])) continue;
 
       // Score: prefer tiles closer to enemy direction, not too close to king
       int distFromKing = me.distanceSquaredTo(tileLoc);
@@ -1281,7 +1342,15 @@ public class RobotPlayer {
     // Role assignment with strategy adaptation
     int myRole;
     if (mapSize == 0) {
+      // Small map: all attack for first 25 rounds
       if (round < SMALL_MAP_ALL_ATTACK_ROUNDS) {
+        myRole = 0;
+      } else {
+        myRole = ((id % 10) < cachedAttackerRatio) ? 0 : 1;
+      }
+    } else if (mapSize == 1) {
+      // Medium map: all attack for first 40 rounds
+      if (round < MEDIUM_MAP_ALL_ATTACK_ROUNDS) {
         myRole = 0;
       } else {
         myRole = ((id % 10) < cachedAttackerRatio) ? 0 : 1;
@@ -1300,10 +1369,12 @@ public class RobotPlayer {
     boolean kingNeedsHelp = rc.readSharedArray(4) == 1;
     int distToKing = me.distanceSquaredTo(cachedOurKingLoc);
 
-    // RETREAT CHECK: If retreat signal active, fall back
+    // RETREAT CHECK: If retreat signal active, fall back to rally point (not king)
     if (cachedShouldRetreat && myRole == 0 && distToKing > 16) {
       if (DEBUG) System.out.println("RETREAT:" + round + ":" + id + ":falling back");
-      moveTo(rc, cachedOurKingLoc);
+      // Use rally point if available, otherwise fall back to king
+      MapLocation retreatTarget = (cachedRallyPoint != null) ? cachedRallyPoint : cachedOurKingLoc;
+      moveTo(rc, retreatTarget);
       if (PROFILE) profEndTurn(round, id, false);
       return;
     }
@@ -1356,7 +1427,7 @@ public class RobotPlayer {
     return cachedSwarmRole;
   }
 
-  private static MapLocation getSwarmTarget(MapLocation me, int swarmRole) {
+  private static MapLocation getSwarmTarget(MapLocation me, int swarmRole, int round) {
     int distToEnemy = me.distanceSquaredTo(cachedEnemyKingLoc);
     if (distToEnemy <= SWARM_ENGAGE_DIST_SQ) return cachedEnemyKingLoc;
     if (swarmRole == 0) return cachedEnemyKingLoc;
@@ -1368,27 +1439,44 @@ public class RobotPlayer {
     boolean isLeftFlank = (swarmRole <= 2);
     int myFlankCount = isLeftFlank ? cachedLeftCount : cachedRightCount;
 
-    // If our flank has too few rats, redirect to center (attack enemy king directly)
+    // If our flank has 0 rats (truly orphaned), redirect to center
     if (myFlankCount < MIN_FLANK_COUNT) {
-      // Orphaned flanker - join the center attack
       return cachedEnemyKingLoc;
     }
 
-    Direction flankDir;
-    if (isLeftFlank) {
-      flankDir = toEnemy.rotateLeft().rotateLeft();
-    } else {
-      flankDir = toEnemy.rotateRight().rotateRight();
+    // Update cached flank locations periodically to avoid allocation
+    if (lastFlankLocRound != round) {
+      Direction leftDir = toEnemy.rotateLeft().rotateLeft();
+      Direction rightDir = toEnemy.rotateRight().rotateRight();
+
+      int leftX = cachedEnemyKingLoc.x + leftDir.dx * SWARM_FLANK_DIST;
+      int leftY = cachedEnemyKingLoc.y + leftDir.dy * SWARM_FLANK_DIST;
+      if (leftX < 0) leftX = 0;
+      if (leftX >= mapWidth) leftX = mapWidth - 1;
+      if (leftY < 0) leftY = 0;
+      if (leftY >= mapHeight) leftY = mapHeight - 1;
+
+      int rightX = cachedEnemyKingLoc.x + rightDir.dx * SWARM_FLANK_DIST;
+      int rightY = cachedEnemyKingLoc.y + rightDir.dy * SWARM_FLANK_DIST;
+      if (rightX < 0) rightX = 0;
+      if (rightX >= mapWidth) rightX = mapWidth - 1;
+      if (rightY < 0) rightY = 0;
+      if (rightY >= mapHeight) rightY = mapHeight - 1;
+
+      if (cachedLeftFlankLoc == null
+          || cachedLeftFlankLoc.x != leftX
+          || cachedLeftFlankLoc.y != leftY) {
+        cachedLeftFlankLoc = new MapLocation(leftX, leftY);
+      }
+      if (cachedRightFlankLoc == null
+          || cachedRightFlankLoc.x != rightX
+          || cachedRightFlankLoc.y != rightY) {
+        cachedRightFlankLoc = new MapLocation(rightX, rightY);
+      }
+      lastFlankLocRound = round;
     }
 
-    int flankX = cachedEnemyKingLoc.x + flankDir.dx * SWARM_FLANK_DIST;
-    int flankY = cachedEnemyKingLoc.y + flankDir.dy * SWARM_FLANK_DIST;
-    if (flankX < 0) flankX = 0;
-    if (flankX >= mapWidth) flankX = mapWidth - 1;
-    if (flankY < 0) flankY = 0;
-    if (flankY >= mapHeight) flankY = mapHeight - 1;
-
-    return new MapLocation(flankX, flankY);
+    return isLeftFlank ? cachedLeftFlankLoc : cachedRightFlankLoc;
   }
 
   // ================================================================
@@ -1406,7 +1494,7 @@ public class RobotPlayer {
       throws GameActionException {
 
     int swarmRole = getSwarmRole(id);
-    MapLocation swarmTarget = getSwarmTarget(me, swarmRole);
+    MapLocation swarmTarget = getSwarmTarget(me, swarmRole, round);
 
     // Sense enemies
     int bcSense = PROFILE ? Clock.getBytecodeNum() : 0;
@@ -1633,6 +1721,14 @@ public class RobotPlayer {
           lastMineSqueakRound = round;
           lastSqueakID = id;
         }
+        // Track enemy king HP damage (estimate)
+        if (rc.canAttack(kingCenter)) {
+          // We're about to deal damage - update estimate
+          int currentEstimate = cachedEnemyKingHP;
+          int newEstimate = currentEstimate - 10;
+          if (newEstimate < 0) newEstimate = 0;
+          rc.writeSharedArray(34, newEstimate);
+        }
       }
     }
 
@@ -1734,7 +1830,9 @@ public class RobotPlayer {
       }
     }
 
-    if (cheese >= DELIVERY_THRESHOLD) {
+    // Use map-size-specific delivery threshold
+    int deliveryThreshold = (mapSize == 1) ? MEDIUM_MAP_DELIVERY_THRESHOLD : DELIVERY_THRESHOLD;
+    if (cheese >= deliveryThreshold) {
       deliver(rc, me);
     } else {
       collect(rc, me);
@@ -1995,6 +2093,21 @@ public class RobotPlayer {
       for (int i = 0; i < DIRS_LEN; i++) {
         Direction dir = DIRS[i];
         if (rc.canMove(dir)) {
+          // Ally spacing check: avoid clumping
+          MapLocation dest = me.add(dir);
+          boolean tooClose = false;
+          RobotInfo[] nearbyAllies = rc.senseNearbyRobots(dest, ALLY_MIN_DIST_SQ, cachedOurTeam);
+          if (nearbyAllies.length > 2) tooClose = true; // Too many allies nearby
+          if (!tooClose) {
+            rc.move(dir);
+            return;
+          }
+        }
+      }
+      // If all dirs have clumping, move anyway to avoid being stuck
+      for (int i = 0; i < DIRS_LEN; i++) {
+        Direction dir = DIRS[i];
+        if (rc.canMove(dir)) {
           rc.move(dir);
           return;
         }
@@ -2012,6 +2125,18 @@ public class RobotPlayer {
   private static int bugStartDist = 0;
   private static int lastBugID = -1;
 
+  /** Check if we can safely move in a direction (avoids rat traps). */
+  private static boolean canMoveSafely(RobotController rc, Direction dir)
+      throws GameActionException {
+    if (!rc.canMove(dir)) return false;
+    MapLocation dest = rc.getLocation().add(dir);
+    if (rc.canSenseLocation(dest)) {
+      MapInfo info = rc.senseMapInfo(dest);
+      if (info.getTrap() == TrapType.RAT_TRAP) return false;
+    }
+    return true;
+  }
+
   private static Direction bug2(RobotController rc, MapLocation target, MapLocation me, int id)
       throws GameActionException {
     if (lastBugID != id || bugTarget == null || !bugTarget.equals(target)) {
@@ -2023,7 +2148,8 @@ public class RobotPlayer {
     Direction toTarget = me.directionTo(target);
     if (toTarget == Direction.CENTER) return Direction.CENTER;
 
-    if (!bugTracing && rc.canMove(toTarget)) return toTarget;
+    // Use safe move check that avoids rat traps
+    if (!bugTracing && canMoveSafely(rc, toTarget)) return toTarget;
 
     if (!bugTracing) {
       bugTracing = true;
@@ -2033,12 +2159,12 @@ public class RobotPlayer {
 
     if (bugTracing) {
       int curDist = me.distanceSquaredTo(target);
-      if (curDist < bugStartDist && rc.canMove(toTarget)) {
+      if (curDist < bugStartDist && canMoveSafely(rc, toTarget)) {
         bugTracing = false;
         return toTarget;
       }
       for (int i = 0; i < 8; i++) {
-        if (rc.canMove(bugTracingDir)) {
+        if (canMoveSafely(rc, bugTracingDir)) {
           Direction result = bugTracingDir;
           bugTracingDir = bugTracingDir.rotateLeft();
           return result;
