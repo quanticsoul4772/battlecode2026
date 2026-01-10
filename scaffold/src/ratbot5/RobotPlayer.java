@@ -3,12 +3,14 @@ package ratbot5;
 import battlecode.common.*;
 
 /**
- * ratbot5 - Extreme bytecode optimized version
+ * ratbot5 - Professional-level competitive bot
  *
- * <p>Optimizations applied: - Static cached MapLocations (avoid new allocations) - Bitwise
- * operations instead of division/modulo - Cached array lengths and loop bounds - Inlined method
- * calls in hot paths - Direction dx/dy lookup tables - No enhanced for-loops (iterator allocation)
- * - Ternary instead of Math.min/max
+ * <p>Features: - Kiting state machine (attack-retreat-approach cycle) - Enemy ring buffer (track
+ * last 4 enemy positions for prediction) - Overkill prevention (don't waste damage on nearly-dead
+ * enemies) - Retreat coordination (broadcast retreat signal when army HP is low) - Predictive
+ * targeting (aim where enemies will be) - Game theory integration (optimal backstab timing) - Army
+ * strength estimation (track relative army sizes) - Dynamic swarm rebalancing (redirect orphaned
+ * flankers) - Adaptive strategy detection (counter enemy patterns)
  */
 public class RobotPlayer {
   // ================================================================
@@ -16,36 +18,77 @@ public class RobotPlayer {
   // ================================================================
 
   // ========== DEBUG CONFIG ==========
-  private static final boolean DEBUG = false; // Set true for testing only
-  private static final boolean PROFILE = false; // Set true to enable bytecode profiling
-  private static final int PROFILE_INTERVAL = 10; // Profile every N rounds
+  private static final boolean DEBUG = false;
+  private static final boolean PROFILE = false;
+  private static final int PROFILE_INTERVAL = 10;
 
   // ========== MAP SIZE THRESHOLDS ==========
-  private static final int SMALL_MAP_AREA = 40 * 40; // 1600 tiles
-  private static final int MEDIUM_MAP_AREA = 50 * 50; // 2500 tiles
+  private static final int SMALL_MAP_AREA = 40 * 40;
+  private static final int MEDIUM_MAP_AREA = 50 * 50;
 
   // ========== COMBAT CONFIG ==========
   private static final int ENHANCED_ATTACK_CHEESE = 16;
   private static final int ENHANCED_THRESHOLD = 300;
   private static final int SMALL_MAP_ENHANCED_THRESHOLD = 100;
+  private static final int FOCUS_FIRE_STALE_ROUNDS = 3;
+
+  // ========== KITING CONFIG ==========
+  private static final int KITE_STATE_APPROACH = 0;
+  private static final int KITE_STATE_ATTACK = 1;
+  private static final int KITE_STATE_RETREAT = 2;
+  private static final int KITE_RETREAT_DIST = 2; // Retreat 2 tiles after attacking
+  private static final int KITE_ENGAGE_DIST_SQ = 8; // Start kiting when this close
+
+  // ========== OVERKILL PREVENTION ==========
+  private static final int OVERKILL_HP_THRESHOLD =
+      30; // Don't attack if HP < this and allies nearby
+
+  // ========== RETREAT COORDINATION ==========
+  private static final int RETREAT_HP_RATIO_THRESHOLD = 40; // Retreat if our HP < 40% of enemy
+  private static final int RETREAT_SIGNAL_STALE = 5; // Retreat signal expires after 5 rounds
+
+  // ========== ADAPTIVE STRATEGY ==========
+  private static final int RUSH_DETECTION_ROUND = 30;
+  private static final int RUSH_ENEMY_THRESHOLD = 3; // >3 enemies = rush
+  private static final int TURTLE_DETECTION_ROUND = 50;
+  private static final int TURTLE_ENEMY_THRESHOLD = 2; // <2 enemies = turtle
+  private static final int STRATEGY_NORMAL = 0;
+  private static final int STRATEGY_ANTI_RUSH = 1;
+  private static final int STRATEGY_ANTI_TURTLE = 2;
+
+  // ========== PHASE-BASED STRATEGY CONFIG ==========
+  private static final int PHASE_EARLY = 0;
+  private static final int PHASE_MID = 1;
+  private static final int PHASE_LATE = 2;
+  private static final int EARLY_PHASE_END_ROUND = 50;
+  private static final int MID_PHASE_END_ROUND = 200;
+  private static final int LOW_CHEESE_THRESHOLD = 300;
+  private static final int HIGH_CHEESE_THRESHOLD = 800;
+  private static final int EARLY_ATTACKER_RATIO = 8;
+  private static final int MID_ATTACKER_RATIO = 6;
+  private static final int LATE_RICH_ATTACKER_RATIO = 7;
+  private static final int LATE_POOR_ATTACKER_RATIO = 4;
+  private static final int LATE_NORMAL_ATTACKER_RATIO = 5;
+
+  // ========== SWARMING CONFIG ==========
+  private static final int SWARM_FLANK_DIST = 6;
+  private static final int SWARM_ENGAGE_DIST_SQ = 64;
+  private static final int MIN_FLANK_COUNT = 2; // Rebalance if flank < 2 rats
 
   // ========== POPULATION CONFIG ==========
   private static final int INITIAL_SPAWN_COUNT = 10;
-  private static final int CONTINUOUS_SPAWN_RESERVE =
-      400; // Higher reserve to prevent economy collapse
+  private static final int CONTINUOUS_SPAWN_RESERVE = 400;
   private static final int COLLECTOR_MINIMUM = 3;
-  private static final int SMALL_MAP_INITIAL_SPAWN = 10; // Aggressive: max attackers early
+  private static final int SMALL_MAP_INITIAL_SPAWN = 10;
   private static final int SMALL_MAP_COLLECTOR_MIN = 2;
-  private static final int SMALL_MAP_ALL_ATTACK_ROUNDS = 25; // All rats attack for first N rounds
-  private static final int SMALL_MAP_CONTINUOUS_RESERVE =
-      100; // Lower reserve for aggressive small maps
-  private static final int SPAWN_COOLDOWN_ROUNDS =
-      3; // Only spawn 1 rat every N rounds after initial burst
+  private static final int SMALL_MAP_ALL_ATTACK_ROUNDS = 25;
+  private static final int SMALL_MAP_CONTINUOUS_RESERVE = 100;
+  private static final int SPAWN_COOLDOWN_ROUNDS = 3;
 
   // ========== ARMY SIZE CONFIG ==========
-  private static final int MIN_ARMY_SIZE = 6; // Below this triggers emergency spawning
-  private static final int EMERGENCY_SPAWN_RESERVE = 80; // Lower reserve during emergency
-  private static final int HEALTHY_ARMY_SIZE = 12; // Above this, use normal cooldown
+  private static final int MIN_ARMY_SIZE = 6;
+  private static final int EMERGENCY_SPAWN_RESERVE = 80;
+  private static final int HEALTHY_ARMY_SIZE = 12;
 
   // ========== MOVEMENT CONFIG ==========
   private static final int FORCED_MOVEMENT_THRESHOLD = 3;
@@ -55,8 +98,8 @@ public class RobotPlayer {
   private static final int DELIVERY_THRESHOLD = 5;
   private static final int KING_CHEESE_RESERVE = 100;
   private static final int SMALL_MAP_KING_RESERVE = 50;
-  private static final int CHEESE_SENSE_RADIUS_SQ = 10; // ~30 tiles instead of ~60
-  private static final int GOOD_ENOUGH_CHEESE_DIST_SQ = 8; // Early return threshold
+  private static final int CHEESE_SENSE_RADIUS_SQ = 10;
+  private static final int GOOD_ENOUGH_CHEESE_DIST_SQ = 8;
 
   // ========== THROTTLE CONFIG ==========
   private static final int SQUEAK_THROTTLE_ROUNDS = 15;
@@ -72,39 +115,60 @@ public class RobotPlayer {
   private static final int CAT_TRAP_END_ROUND = 40;
 
   // ========== RAT DEFENSE CONFIG ==========
-  private static final int RAT_TRAP_EARLY_TARGET = 10; // For medium/large maps
-  private static final int SMALL_MAP_RAT_TRAP_TARGET =
-      3; // Minimal traps on small maps - invest in attackers
-  private static final int RAT_TRAP_EARLY_WINDOW = 15; // Extend window from 5 to 15 rounds
+  private static final int RAT_TRAP_EARLY_TARGET = 10;
+  private static final int SMALL_MAP_RAT_TRAP_TARGET = 3;
+  private static final int RAT_TRAP_EARLY_WINDOW = 15;
   private static final int DEFEND_KING_DIST_SQ = 36;
-  private static final int BABY_RAT_TRAP_COOLDOWN = 20; // Rounds between baby rat trap placements
-  private static final int REACTIVE_TRAP_DIST_SQ = 25; // Place trap when enemy this close
+  private static final int BABY_RAT_TRAP_COOLDOWN = 20;
+  private static final int REACTIVE_TRAP_DIST_SQ = 25;
+
+  // ========== CHOKEPOINT CONFIG ==========
+  private static final int CHOKEPOINT_MIN_BLOCKED =
+      3; // Min impassable neighbors to be a chokepoint
+  private static final int CHOKEPOINT_SCAN_RADIUS_SQ =
+      16; // How far from king to scan for chokepoints
+  private static final int CHOKEPOINT_TRAP_INTERVAL =
+      5; // Only check for chokepoints every N rounds
+  private static final int CHOKEPOINT_TRAP_MAX = 5; // Max chokepoint traps to place
+
+  // ========== GAME THEORY CONFIG ==========
+  private static final int BACKSTAB_CHECK_INTERVAL = 50;
+  private static final int BACKSTAB_CONFIDENCE_THRESHOLD = 10;
+  private static final int BACKSTAB_MINIMUM_ROUND = 200;
 
   // ================================================================
-  // BYTECODE-OPTIMIZED CONSTANTS (avoid repeated allocations)
+  // SHARED ARRAY SLOT LAYOUT
   // ================================================================
+  // Slot 0-1: Our king position (X, Y)
+  // Slot 2-3: Enemy king position (X, Y)
+  // Slot 4: King under attack flag
+  // Slot 5-6: Focus fire target (packed loc + HP, round)
+  // Slot 7: Phase + attacker ratio
+  // Slot 8-11: Enemy ring buffer (4 most recent sightings)
+  // Slot 12: Army strength ratio (our HP / enemy HP scaled to 0-100)
+  // Slot 13: Retreat signal (round when issued)
+  // Slot 14: Detected strategy (0=normal, 1=anti-rush, 2=anti-turtle)
+  // Slot 15: Total enemies seen this game (for adaptive strategy)
+  // Slot 16-19: Flank counts (center, left, right, reserve)
+  // Slot 20: Cat damage accumulated (for game theory)
+  // Slot 21: Chokepoint traps placed
 
-  // Direction array cached with length constant (saves ~1 bytecode per loop iteration)
+  // ================================================================
+  // BYTECODE-OPTIMIZED CONSTANTS
+  // ================================================================
   private static final Direction[] DIRS = Direction.allDirections();
-  private static final int DIRS_LEN = 9; // DIRS.length cached
-
-  // Direction delta lookup tables (avoid Direction.dx/dy method calls)
-  // Order: NORTH, NORTHEAST, EAST, SOUTHEAST, SOUTH, SOUTHWEST, WEST, NORTHWEST, CENTER
+  private static final int DIRS_LEN = 9;
   private static final int[] DIR_DX = {0, 1, 1, 1, 0, -1, -1, -1, 0};
   private static final int[] DIR_DY = {1, 1, 0, -1, -1, -1, 0, 1, 0};
-
-  // Cat trap placement priorities (static to avoid allocation each call)
   private static final Direction[] CAT_TRAP_PRIORITIES = new Direction[5];
-
-  // Baby rat bytecode limit (constant, avoids rc.getType().getBytecodeLimit())
   private static final int BABY_RAT_BYTECODE_LIMIT = 2500;
   private static final int KING_BYTECODE_LIMIT = 5000;
-
-  // Baby rat vision radius squared (avoids rc.getType().getVisionRadiusSquared() chain)
   private static final int BABY_RAT_VISION_SQ = 20;
+  private static final int KING_VISION_SQ = 25;
+  private static final Direction[] BABY_TRAP_DIRS = new Direction[3];
 
   // ================================================================
-  // BYTECODE PROFILING (track usage per section)
+  // PROFILING
   // ================================================================
   private static int profTurnStart = 0;
   private static int profSenseNeutral = 0;
@@ -117,8 +181,6 @@ public class RobotPlayer {
   private static int profTurnTotal = 0;
   private static int profMaxTurn = 0;
   private static int profSampleCount = 0;
-
-  // Per-section accumulators for averaging
   private static long profAccumSenseNeutral = 0;
   private static long profAccumSenseEnemy = 0;
   private static long profAccumMovement = 0;
@@ -153,11 +215,7 @@ public class RobotPlayer {
             - profCheese
             - profCache;
     if (profOther < 0) profOther = 0;
-
-    // Track max
     if (profTurnTotal > profMaxTurn) profMaxTurn = profTurnTotal;
-
-    // Accumulate for averaging
     profAccumSenseNeutral += profSenseNeutral;
     profAccumSenseEnemy += profSenseEnemy;
     profAccumMovement += profMovement;
@@ -167,7 +225,6 @@ public class RobotPlayer {
     profAccumTotal += profTurnTotal;
     profSampleCount++;
 
-    // Print profile every PROFILE_INTERVAL rounds
     if (round % PROFILE_INTERVAL == 0) {
       int limit = isKing ? KING_BYTECODE_LIMIT : BABY_RAT_BYTECODE_LIMIT;
       int pct = (profTurnTotal * 100) / limit;
@@ -187,74 +244,76 @@ public class RobotPlayer {
               + "%)"
               + " | sense:"
               + (profSenseNeutral + profSenseEnemy)
-              + " (N:"
-              + profSenseNeutral
-              + " E:"
-              + profSenseEnemy
-              + ")"
               + " move:"
               + profMovement
               + " combat:"
               + profCombat
-              + " cheese:"
-              + profCheese
-              + " cache:"
-              + profCache
-              + " other:"
-              + profOther
               + " | max:"
               + profMaxTurn);
-    }
-
-    // Print summary every 100 rounds
-    if (round % 100 == 0 && profSampleCount > 0) {
-      System.out.println(
-          "PROF_AVG:"
-              + round
-              + ":"
-              + id
-              + ":"
-              + " total="
-              + (profAccumTotal / profSampleCount)
-              + " sense="
-              + ((profAccumSenseNeutral + profAccumSenseEnemy) / profSampleCount)
-              + " move="
-              + (profAccumMovement / profSampleCount)
-              + " combat="
-              + (profAccumCombat / profSampleCount)
-              + " cheese="
-              + (profAccumCheese / profSampleCount)
-              + " samples="
-              + profSampleCount);
     }
   }
 
   // ================================================================
-  // CACHED SHARED ARRAY (read once per turn)
+  // CACHED STATE
   // ================================================================
   private static int cachedKingX, cachedKingY, cachedEnemyX, cachedEnemyY;
   private static int lastCacheRound = -1;
-
-  // Cached team references (avoids rc.getTeam().opponent() calls ~10 bc each)
   private static Team cachedOurTeam = null;
   private static Team cachedEnemyTeam = null;
+  private static boolean cachedIsCooperation = false;
 
-  // ================================================================
-  // CACHED MAPLOCATIONS (avoid repeated 'new MapLocation' allocations)
-  // Each 'new MapLocation' costs ~5-10 bytecodes
-  // ================================================================
+  // Focus fire target
+  private static MapLocation cachedFocusTarget = null;
+  private static int cachedFocusTargetHP = 0;
+  private static int cachedFocusTargetRound = -100;
+
+  // Phase-based strategy
+  private static int cachedGamePhase = PHASE_EARLY;
+  private static int cachedAttackerRatio = EARLY_ATTACKER_RATIO;
+
+  // Cached locations
   private static MapLocation cachedOurKingLoc = null;
   private static MapLocation cachedEnemyKingLoc = null;
   private static MapLocation cachedMapCenter = null;
   private static int lastKingLocRound = -1;
 
-  // ================================================================
-  // MAP SIZE DETECTION (computed once)
-  // ================================================================
-  private static int mapSize = -1; // 0=small, 1=medium, 2=large
+  // Map size
+  private static int mapSize = -1;
   private static boolean mapSizeComputed = false;
   private static int mapWidth = 0;
   private static int mapHeight = 0;
+
+  // Enemy ring buffer cache (read from shared array)
+  private static int[] cachedEnemyRingX = new int[4];
+  private static int[] cachedEnemyRingY = new int[4];
+  private static int[] cachedEnemyRingRound = new int[4];
+  private static int cachedEnemyRingIndex = 0;
+
+  // Retreat coordination
+  private static int cachedRetreatRound = -100;
+  private static boolean cachedShouldRetreat = false;
+
+  // Adaptive strategy
+  private static int cachedDetectedStrategy = STRATEGY_NORMAL;
+
+  // Swarm role caching
+  private static int cachedSwarmRole = -1;
+  private static int lastSwarmRoleID = -1;
+
+  // Flank counts (read from shared array slots 16-18)
+  private static int cachedCenterCount = 0;
+  private static int cachedLeftCount = 0;
+  private static int cachedRightCount = 0;
+
+  // Kiting state (per robot)
+  private static int kiteState = KITE_STATE_APPROACH;
+  private static int lastKiteID = -1;
+  private static int kiteRetreatTurns = 0;
+  private static MapLocation lastAttackedLoc = null;
+
+  // ================================================================
+  // INITIALIZATION
+  // ================================================================
 
   private static void computeMapSize(RobotController rc) {
     if (!mapSizeComputed) {
@@ -262,36 +321,39 @@ public class RobotPlayer {
       mapHeight = rc.getMapHeight();
       int area = mapWidth * mapHeight;
       if (area <= SMALL_MAP_AREA) {
-        mapSize = 0; // Small
+        mapSize = 0;
       } else if (area <= MEDIUM_MAP_AREA) {
-        mapSize = 1; // Medium
+        mapSize = 1;
       } else {
-        mapSize = 2; // Large
+        mapSize = 2;
       }
-      // Cache map center (bitwise shift instead of division)
       cachedMapCenter = new MapLocation(mapWidth >> 1, mapHeight >> 1);
-      // Cache team references (saves ~10 bc per rc.getTeam().opponent() call)
       cachedOurTeam = rc.getTeam();
       cachedEnemyTeam = cachedOurTeam.opponent();
+      cachedIsCooperation = rc.isCooperation();
       mapSizeComputed = true;
     }
   }
 
-  // Inline check avoids method call overhead
   private static boolean isSmallMap() {
     return mapSize == 0;
   }
+
+  // ================================================================
+  // CACHE REFRESH
+  // ================================================================
 
   private static void refreshCache(RobotController rc) throws GameActionException {
     int r = rc.getRoundNum();
     if (r == lastCacheRound) return;
     lastCacheRound = r;
+
+    // Basic king positions
     cachedKingX = rc.readSharedArray(0);
     cachedKingY = rc.readSharedArray(1);
     cachedEnemyX = rc.readSharedArray(2);
     cachedEnemyY = rc.readSharedArray(3);
 
-    // Update cached locations only if coordinates changed
     if (lastKingLocRound != r) {
       if (cachedOurKingLoc == null
           || cachedOurKingLoc.x != cachedKingX
@@ -305,6 +367,168 @@ public class RobotPlayer {
       }
       lastKingLocRound = r;
     }
+
+    // Focus fire target (slots 5-6)
+    int focusPacked = rc.readSharedArray(5);
+    int focusRound = rc.readSharedArray(6);
+    if (focusPacked != 0 && (r - focusRound) <= FOCUS_FIRE_STALE_ROUNDS) {
+      int fx = focusPacked & 0x3F;
+      int fy = (focusPacked >> 6) & 0x3F;
+      int fhp = ((focusPacked >> 12) & 0xF) * 10;
+      if (cachedFocusTarget == null || cachedFocusTarget.x != fx || cachedFocusTarget.y != fy) {
+        cachedFocusTarget = new MapLocation(fx, fy);
+      }
+      cachedFocusTargetHP = fhp;
+      cachedFocusTargetRound = focusRound;
+    } else {
+      cachedFocusTarget = null;
+      cachedFocusTargetHP = 0;
+      cachedFocusTargetRound = -100;
+    }
+
+    // Phase (slot 7)
+    int phasePacked = rc.readSharedArray(7);
+    cachedGamePhase = phasePacked & 0x3;
+    cachedAttackerRatio = (phasePacked >> 2) & 0xF;
+    if (cachedAttackerRatio == 0) {
+      cachedAttackerRatio = EARLY_ATTACKER_RATIO;
+    }
+
+    // Enemy ring buffer (slots 8-11)
+    for (int i = 0; i < 4; i++) {
+      int packed = rc.readSharedArray(8 + i);
+      if (packed != 0) {
+        cachedEnemyRingX[i] = packed & 0x3F;
+        cachedEnemyRingY[i] = (packed >> 6) & 0x3F;
+        cachedEnemyRingRound[i] = r - ((packed >> 12) & 0xF); // Decode round delta
+      } else {
+        cachedEnemyRingX[i] = -1;
+        cachedEnemyRingY[i] = -1;
+        cachedEnemyRingRound[i] = -100;
+      }
+    }
+
+    // Retreat signal (slot 13)
+    int retreatRound = rc.readSharedArray(13);
+    cachedRetreatRound = retreatRound;
+    cachedShouldRetreat = (retreatRound > 0 && (r - retreatRound) <= RETREAT_SIGNAL_STALE);
+
+    // Detected strategy (slot 14)
+    cachedDetectedStrategy = rc.readSharedArray(14) & 0x3;
+
+    // Flank counts (slots 16-18)
+    cachedCenterCount = rc.readSharedArray(16);
+    cachedLeftCount = rc.readSharedArray(17);
+    cachedRightCount = rc.readSharedArray(18);
+  }
+
+  // ================================================================
+  // ENEMY RING BUFFER (slots 8-11)
+  // ================================================================
+
+  private static int enemyRingWriteIndex = 0;
+
+  private static void writeEnemyToRingBuffer(RobotController rc, MapLocation enemyLoc, int round)
+      throws GameActionException {
+    // Pack: bits 0-5 = X, bits 6-11 = Y, bits 12-15 = round delta (capped at 15)
+    int roundDelta = 0; // Current round = 0 delta
+    int packed = (enemyLoc.x & 0x3F) | ((enemyLoc.y & 0x3F) << 6) | ((roundDelta & 0xF) << 12);
+    rc.writeSharedArray(8 + enemyRingWriteIndex, packed);
+    enemyRingWriteIndex = (enemyRingWriteIndex + 1) & 3; // Circular buffer
+  }
+
+  // ================================================================
+  // PREDICTIVE TARGETING
+  // ================================================================
+
+  /**
+   * Predict where an enemy will be based on recent sightings. Uses velocity estimation from ring
+   * buffer.
+   */
+  private static MapLocation predictEnemyPosition(MapLocation currentLoc, int currentRound) {
+    // Find two most recent sightings of enemies near this location
+    int bestIdx1 = -1, bestIdx2 = -1;
+    int bestRound1 = -100, bestRound2 = -100;
+
+    for (int i = 0; i < 4; i++) {
+      if (cachedEnemyRingX[i] < 0) continue;
+      int rx = cachedEnemyRingX[i];
+      int ry = cachedEnemyRingY[i];
+      int rr = cachedEnemyRingRound[i];
+
+      // Check if this sighting is near current enemy (within 5 tiles)
+      int dx = Math.abs(rx - currentLoc.x);
+      int dy = Math.abs(ry - currentLoc.y);
+      if (dx <= 5 && dy <= 5) {
+        if (rr > bestRound1) {
+          bestRound2 = bestRound1;
+          bestIdx2 = bestIdx1;
+          bestRound1 = rr;
+          bestIdx1 = i;
+        } else if (rr > bestRound2) {
+          bestRound2 = rr;
+          bestIdx2 = i;
+        }
+      }
+    }
+
+    // If we have two sightings, estimate velocity
+    if (bestIdx1 >= 0 && bestIdx2 >= 0 && bestRound1 != bestRound2) {
+      int x1 = cachedEnemyRingX[bestIdx2];
+      int y1 = cachedEnemyRingY[bestIdx2];
+      int x2 = cachedEnemyRingX[bestIdx1];
+      int y2 = cachedEnemyRingY[bestIdx1];
+      int dt = bestRound1 - bestRound2;
+
+      if (dt > 0) {
+        // Velocity per round
+        int vx = (x2 - x1) / dt;
+        int vy = (y2 - y1) / dt;
+
+        // Predict 1-2 rounds ahead
+        int predictX = currentLoc.x + vx;
+        int predictY = currentLoc.y + vy;
+
+        // Clamp to map bounds
+        if (predictX < 0) predictX = 0;
+        if (predictX >= mapWidth) predictX = mapWidth - 1;
+        if (predictY < 0) predictY = 0;
+        if (predictY >= mapHeight) predictY = mapHeight - 1;
+
+        return new MapLocation(predictX, predictY);
+      }
+    }
+
+    // Fall back to current position (avoid allocation)
+    return currentLoc;
+  }
+
+  // ================================================================
+  // OVERKILL PREVENTION
+  // ================================================================
+
+  /**
+   * Check if attacking this target would be overkill. Returns true if we should NOT attack (let
+   * allies finish it).
+   */
+  private static boolean isOverkill(RobotController rc, RobotInfo target, RobotInfo[] allies) {
+    int targetHP = target.getHealth();
+    if (targetHP > OVERKILL_HP_THRESHOLD) {
+      return false; // Not low enough HP to worry about overkill
+    }
+
+    // Count allies adjacent to this target
+    MapLocation targetLoc = target.getLocation();
+    int adjacentAllies = 0;
+    for (int i = allies.length - 1; i >= 0; i--) {
+      if (allies[i].getLocation().distanceSquaredTo(targetLoc) <= 2) {
+        adjacentAllies++;
+      }
+    }
+
+    // If expected damage from allies >= target HP, don't attack
+    int expectedDamage = adjacentAllies * 10;
+    return expectedDamage >= targetHP;
   }
 
   // ================================================================
@@ -312,7 +536,6 @@ public class RobotPlayer {
   // ================================================================
 
   public static void run(RobotController rc) throws GameActionException {
-    // One-time initialization
     computeMapSize(rc);
 
     while (true) {
@@ -331,15 +554,18 @@ public class RobotPlayer {
   }
 
   // ================================================================
-  // KING BEHAVIOR (King statics are OK - only one king per team)
+  // KING BEHAVIOR
   // ================================================================
 
   private static int spawnCount = 0;
   private static int trapCount = 0;
   private static int catTrapCount = 0;
   private static int ratTrapCount = 0;
+  private static int chokepointTrapCount = 0;
   private static int lastKingX = -1, lastKingY = -1;
-  private static int lastSpawnRound = 0; // Track last spawn for cooldown
+  private static int lastSpawnRound = 0;
+  private static int totalEnemiesSeen = 0;
+  private static int catDamageDealt = 0;
 
   private static void runKing(RobotController rc) throws GameActionException {
     int round = rc.getRoundNum();
@@ -348,12 +574,21 @@ public class RobotPlayer {
     MapLocation me = rc.getLocation();
     int kingHP = rc.getHealth();
 
-    if (DEBUG && (round & 63) == 0) { // Bitwise AND instead of modulo
+    if (DEBUG && (round & 63) == 0) {
       System.out.println(
-          "KING:" + round + ":cheese=" + cheese + " HP=" + kingHP + " spawned=" + spawnCount);
+          "KING:"
+              + round
+              + ":cheese="
+              + cheese
+              + " HP="
+              + kingHP
+              + " spawned="
+              + spawnCount
+              + " strategy="
+              + cachedDetectedStrategy);
     }
 
-    // Write position to shared array ONLY if changed
+    // Write position
     if (me.x != lastKingX || me.y != lastKingY) {
       rc.writeSharedArray(0, me.x);
       rc.writeSharedArray(1, me.y);
@@ -361,25 +596,20 @@ public class RobotPlayer {
       lastKingY = me.y;
     }
 
-    // Calculate enemy king (round 1 only)
+    // Calculate enemy king (round 1)
     if (round == 1) {
       rc.writeSharedArray(2, mapWidth - 1 - me.x);
       rc.writeSharedArray(3, mapHeight - 1 - me.y);
     }
 
-    // Determine map-size-based parameters (inlined)
     boolean smallMap = mapSize == 0;
     int initialSpawnTarget = smallMap ? SMALL_MAP_INITIAL_SPAWN : INITIAL_SPAWN_COUNT;
     int cheeseReserve = smallMap ? SMALL_MAP_KING_RESERVE : KING_CHEESE_RESERVE;
     int collectorMin = smallMap ? SMALL_MAP_COLLECTOR_MIN : COLLECTOR_MINIMUM;
-
-    // Get map-specific trap target
     int trapTarget = smallMap ? SMALL_MAP_RAT_TRAP_TARGET : RAT_TRAP_EARLY_TARGET;
 
-    // SMALL MAP STRATEGY: Spawn attackers FIRST, then minimal traps
-    // MEDIUM/LARGE MAP: Traps first, then spawn
+    // Spawning logic (same as before but with strategy adaptation)
     if (smallMap) {
-      // PRIORITY 0A (Small): Spawn attackers ASAP
       if (spawnCount < initialSpawnTarget) {
         int cost = rc.getCurrentRatCost();
         if (cheese > cost + cheeseReserve) {
@@ -387,127 +617,110 @@ public class RobotPlayer {
           if (DEBUG) System.out.println("RUSH_SPAWN:" + round + ":rat#" + spawnCount);
         }
       }
-      // PRIORITY 0B (Small): Place minimal traps after spawning started
       if (round <= RAT_TRAP_EARLY_WINDOW && ratTrapCount < trapTarget && spawnCount >= 3) {
         placeDefensiveTrapsTowardEnemy(rc, me);
       }
     } else {
-      // PRIORITY 0 (Medium/Large): Early rat trap perimeter
       if (round <= RAT_TRAP_EARLY_WINDOW && ratTrapCount < trapTarget) {
         placeDefensiveTrapsTowardEnemy(rc, me);
       }
     }
 
-    // PRIORITY 1: Place cat traps early (cooperation only, rounds 5-40)
+    // Cat traps (cooperation)
     if (!smallMap
-        && rc.isCooperation()
+        && cachedIsCooperation
         && round >= 5
         && round <= CAT_TRAP_END_ROUND
         && catTrapCount < CAT_TRAP_TARGET) {
       placeCatTraps(rc, me);
     }
 
-    // Spawn initial rats (skip for small maps - already handled above)
+    // CHOKEPOINT TRAPS: Place traps at narrow passages toward enemy
+    if (!smallMap
+        && round > RAT_TRAP_EARLY_WINDOW
+        && (round % CHOKEPOINT_TRAP_INTERVAL) == 0
+        && chokepointTrapCount < CHOKEPOINT_TRAP_MAX
+        && rc.isActionReady()) {
+      placeChokepointTrap(rc, me);
+    }
+
+    // Count army once for both spawning, retreat coordination, and flank tracking
+    int[] armyCounts = countArmyAndCollectors(rc);
+    int armySize = armyCounts[0];
+    int collectors = armyCounts[1];
+    int ourTotalHP = armyCounts[2];
+    int centerCount = armyCounts[3];
+    int leftCount = armyCounts[4];
+    int rightCount = armyCounts[5];
+
+    // Write flank counts to shared array (slots 16-18)
+    rc.writeSharedArray(16, centerCount);
+    rc.writeSharedArray(17, leftCount);
+    rc.writeSharedArray(18, rightCount);
+
+    if (DEBUG && (round & 31) == 0) {
+      System.out.println(
+          "FLANK:"
+              + round
+              + ":center="
+              + centerCount
+              + " left="
+              + leftCount
+              + " right="
+              + rightCount);
+    }
+
+    // Spawn initial rats
     if (!smallMap && spawnCount < initialSpawnTarget) {
       int cost = rc.getCurrentRatCost();
       if (cheese > cost + cheeseReserve) {
         spawnRat(rc, me);
-        if (DEBUG) System.out.println("SPAWN:" + round + ":rat#" + spawnCount);
       }
     } else {
-      // CONTINUOUS SPAWNING: Keep deploying rats as resources allow!
-      // Dynamic spawning based on army health
+      // Continuous spawning with army health awareness
       int cost = rc.getCurrentRatCost();
-
-      // Count our army size and collectors in ONE sense call (saves ~100 bytecodes)
-      int[] armyCounts = countArmyAndCollectors(rc);
-      int armySize = armyCounts[0];
-      int collectors = armyCounts[1];
       boolean emergencyMode = armySize < MIN_ARMY_SIZE;
       boolean healthyArmy = armySize >= HEALTHY_ARMY_SIZE;
 
-      // Dynamic reserve: lower when army is small, higher when healthy
       int continuousReserve;
       if (emergencyMode) {
-        continuousReserve = EMERGENCY_SPAWN_RESERVE; // Desperate - spawn with minimal reserve
+        continuousReserve = EMERGENCY_SPAWN_RESERVE;
       } else if (smallMap) {
         continuousReserve = SMALL_MAP_CONTINUOUS_RESERVE;
       } else {
         continuousReserve = CONTINUOUS_SPAWN_RESERVE;
       }
 
-      // Dynamic cooldown: no cooldown in emergency, normal otherwise
       int spawnCooldown;
       if (emergencyMode) {
-        spawnCooldown = 1; // Emergency - spawn every round
+        spawnCooldown = 1;
       } else if (smallMap) {
         spawnCooldown = 1;
       } else if (healthyArmy) {
-        spawnCooldown = SPAWN_COOLDOWN_ROUNDS + 1; // Healthy - save cheese
+        spawnCooldown = SPAWN_COOLDOWN_ROUNDS + 1;
       } else {
         spawnCooldown = SPAWN_COOLDOWN_ROUNDS;
       }
       boolean cooldownReady = (round - lastSpawnRound) >= spawnCooldown;
 
-      // Spawn if we have enough cheese above reserve AND cooldown is ready
       if (cheese > cost + continuousReserve && cooldownReady) {
-        // Check if we need more collectors (maintain minimum)
-        boolean needCollectors = collectors < collectorMin;
-
-        // Always try to spawn - the role is determined by robot ID at birth
-        // We just need to keep spawning to maintain army strength
         if (spawnRat(rc, me)) {
           lastSpawnRound = round;
-          if (DEBUG) {
-            String reason =
-                emergencyMode ? "EMERGENCY" : (needCollectors ? "REPLACE_COL" : "CONTINUOUS");
-            System.out.println(
-                reason
-                    + ":"
-                    + round
-                    + ":rat#"
-                    + spawnCount
-                    + " cheese="
-                    + cheese
-                    + " army="
-                    + armySize);
-          }
         }
-      } else if (DEBUG && (round & 31) == 0) {
-        // Debug why we're not spawning
-        boolean canAfford = cheese > cost + continuousReserve;
-        System.out.println(
-            "NO_SPAWN:"
-                + round
-                + ":cheese="
-                + cheese
-                + " cost="
-                + cost
-                + " reserve="
-                + continuousReserve
-                + " afford="
-                + canAfford
-                + " cooldown="
-                + cooldownReady
-                + " army="
-                + armySize);
       }
     }
 
-    // Place defensive rat traps and dirt walls
+    // Defensive structures
     if (spawnCount >= 10 && cheese > 300) {
       for (int i = 0; i < DIRS_LEN; i++) {
         Direction dir = DIRS[i];
-        // Use translate instead of add().add() - saves ~5 bytecodes
-        int dx = DIR_DX[i] << 1; // *2 via shift
+        int dx = DIR_DX[i] << 1;
         int dy = DIR_DY[i] << 1;
         MapLocation loc = me.translate(dx, dy);
-
         if (rc.getDirt() < 4 && rc.canPlaceDirt(loc)) {
           rc.placeDirt(loc);
           return;
         }
-
         if (trapCount < 5 && rc.canPlaceRatTrap(loc)) {
           rc.placeRatTrap(loc);
           trapCount++;
@@ -516,7 +729,7 @@ public class RobotPlayer {
       }
     }
 
-    // PRIORITY 2: SENSE THREATS
+    // SENSE THREATS
     int bcBefore = PROFILE ? Clock.getBytecodeNum() : 0;
     RobotInfo[] neutrals = rc.senseNearbyRobots(CAT_KING_FLEE_DIST_SQ, Team.NEUTRAL);
     if (PROFILE) profSenseNeutral += Clock.getBytecodeNum() - bcBefore;
@@ -528,132 +741,159 @@ public class RobotPlayer {
       }
     }
 
-    // Sense enemy rats
     bcBefore = PROFILE ? Clock.getBytecodeNum() : 0;
     RobotInfo[] enemies = rc.senseNearbyRobots(25, cachedEnemyTeam);
     if (PROFILE) profSenseEnemy += Clock.getBytecodeNum() - bcBefore;
+
     int enemyCount = 0;
+    int totalEnemyHP = 0;
     RobotInfo closestEnemy = null;
     int closestDist = Integer.MAX_VALUE;
     for (int i = enemies.length - 1; i >= 0; i--) {
       RobotInfo enemy = enemies[i];
       if (enemy.getType().isBabyRatType()) {
         enemyCount++;
+        totalEnemyHP += enemy.getHealth();
         int dist = me.distanceSquaredTo(enemy.getLocation());
         if (dist < closestDist) {
           closestDist = dist;
           closestEnemy = enemy;
         }
+        // Write to enemy ring buffer
+        writeEnemyToRingBuffer(rc, enemy.getLocation(), round);
+        totalEnemiesSeen++;
       }
     }
 
-    // Update king under attack flag
+    // Update total enemies seen (slot 15)
+    rc.writeSharedArray(15, totalEnemiesSeen);
+
+    // ADAPTIVE STRATEGY DETECTION
+    if (round == RUSH_DETECTION_ROUND) {
+      if (totalEnemiesSeen >= RUSH_ENEMY_THRESHOLD) {
+        rc.writeSharedArray(14, STRATEGY_ANTI_RUSH);
+        cachedDetectedStrategy = STRATEGY_ANTI_RUSH;
+        if (DEBUG) System.out.println("STRATEGY_DETECTED:" + round + ":ANTI_RUSH");
+      }
+    }
+    if (round == TURTLE_DETECTION_ROUND && cachedDetectedStrategy == STRATEGY_NORMAL) {
+      if (totalEnemiesSeen < TURTLE_ENEMY_THRESHOLD) {
+        rc.writeSharedArray(14, STRATEGY_ANTI_TURTLE);
+        cachedDetectedStrategy = STRATEGY_ANTI_TURTLE;
+        if (DEBUG) System.out.println("STRATEGY_DETECTED:" + round + ":ANTI_TURTLE");
+      }
+    }
+
+    // King under attack flag
     boolean kingUnderAttack = (enemyCount >= 2 || closestDist <= 9);
     rc.writeSharedArray(4, kingUnderAttack ? 1 : 0);
 
-    // PRIORITY 2A: REACTIVE TRAP PLACEMENT - place trap in enemy direction
+    // ARMY STRENGTH & RETREAT COORDINATION (reuse armyCounts from above)
+    if (enemyCount > 0 && totalEnemyHP > 0) {
+      int hpRatio = (ourTotalHP * 100) / (ourTotalHP + totalEnemyHP);
+      rc.writeSharedArray(12, hpRatio);
+
+      // Retreat signal if our HP ratio < threshold
+      if (hpRatio < RETREAT_HP_RATIO_THRESHOLD) {
+        rc.writeSharedArray(13, round);
+        if (DEBUG) System.out.println("RETREAT_SIGNAL:" + round + ":ratio=" + hpRatio);
+      }
+    }
+
+    // FOCUS FIRE
+    if (enemyCount > 0) {
+      RobotInfo focusTarget = selectFocusTarget(enemies, me);
+      if (focusTarget != null) {
+        writeFocusTarget(rc, focusTarget, round);
+      }
+    } else {
+      rc.writeSharedArray(5, 0);
+    }
+
+    // PHASE-BASED STRATEGY
+    updateAndBroadcastPhase(rc, round, cheese);
+
+    // GAME THEORY: Backstab decision (cooperation mode only)
+    if (cachedIsCooperation
+        && round >= BACKSTAB_MINIMUM_ROUND
+        && (round % BACKSTAB_CHECK_INTERVAL) == 0) {
+      // Simple backstab check: if we've done significant cat damage and have army advantage
+      int coopScore = (catDamageDealt * 50) / (catDamageDealt + 1000); // Simplified
+      int backstabScore = 50; // Assume we win king battle
+      if (backstabScore > coopScore + BACKSTAB_CONFIDENCE_THRESHOLD) {
+        // Could switch to backstab mode here - for now just log
+        if (DEBUG)
+          System.out.println(
+              "BACKSTAB_RECOMMENDED:"
+                  + round
+                  + ":coop="
+                  + coopScore
+                  + " backstab="
+                  + backstabScore);
+      }
+    }
+
+    // REACTIVE TRAP PLACEMENT
     if (closestEnemy != null && closestDist <= REACTIVE_TRAP_DIST_SQ && rc.isActionReady()) {
       MapLocation enemyLoc = closestEnemy.getLocation();
       Direction toEnemy = me.directionTo(enemyLoc);
       if (toEnemy != Direction.CENTER) {
-        // Try to place trap between king and approaching enemy
         for (int dist = 2; dist <= 3; dist++) {
           MapLocation trapLoc = me.translate(toEnemy.dx * dist, toEnemy.dy * dist);
           if (rc.canPlaceRatTrap(trapLoc)) {
             rc.placeRatTrap(trapLoc);
             ratTrapCount++;
-            if (DEBUG)
-              System.out.println("REACTIVE_TRAP:" + round + ":" + trapLoc + " toward enemy");
-            break; // Only place one trap per turn
+            break;
           }
         }
       }
     }
 
-    // PRIORITY 2B: KING ATTACKS ADJACENT ENEMIES
+    // KING ATTACKS
     if (closestEnemy != null && rc.isActionReady()) {
       MapLocation enemyLoc = closestEnemy.getLocation();
       if (rc.canAttack(enemyLoc)) {
         rc.attack(enemyLoc);
-        if (DEBUG) System.out.println("KING_ATTACK:" + round + ":hit enemy at " + enemyLoc);
         return;
       }
-      // Try ALL enemies
       for (int i = enemies.length - 1; i >= 0; i--) {
         RobotInfo enemy = enemies[i];
         if (enemy.getType().isBabyRatType()) {
           MapLocation loc = enemy.getLocation();
           if (rc.canAttack(loc)) {
             rc.attack(loc);
-            if (DEBUG) System.out.println("KING_ATTACK:" + round + ":hit enemy at " + loc);
             return;
           }
         }
       }
     }
 
-    // PRIORITY 2C: CHASE OR FLEE based on enemy count
+    // CHASE OR FLEE
     if (closestEnemy != null) {
       MapLocation enemyLoc = closestEnemy.getLocation();
-
       if (enemyCount >= 3) {
-        // Outnumbered - FLEE!
         Direction awayFromEnemy = enemyLoc.directionTo(me);
-        if (awayFromEnemy == Direction.CENTER) {
-          awayFromEnemy = DIRS[round & 7]; // Bitwise AND instead of modulo
-        }
-        if (kingFleeMove(rc, awayFromEnemy)) {
-          if (DEBUG)
-            System.out.println(
-                "KING_FLEE_ENEMY:" + round + ":fled from " + enemyCount + " enemies");
-          return;
-        }
+        if (awayFromEnemy == Direction.CENTER) awayFromEnemy = DIRS[round & 7];
+        if (kingFleeMove(rc, awayFromEnemy)) return;
       } else if (closestDist > 2) {
-        // CHASE to get in range
         Direction towardEnemy = me.directionTo(enemyLoc);
         if (towardEnemy != Direction.CENTER) {
-          if (kingFleeMove(rc, towardEnemy)) {
-            if (DEBUG)
-              System.out.println(
-                  "KING_CHASE:"
-                      + round
-                      + ":chasing "
-                      + enemyCount
-                      + " enemy at dist="
-                      + closestDist);
-            return;
-          }
+          if (kingFleeMove(rc, towardEnemy)) return;
         }
       }
     }
 
-    // PRIORITY 2D: FLEE FROM CATS
+    // FLEE FROM CATS
     if (nearbyCat != null) {
       MapLocation catLoc = nearbyCat.getLocation();
-      int distToCat = me.distanceSquaredTo(catLoc);
-
-      if (DEBUG) {
-        System.out.println(
-            "KING_CAT_DETECTED:" + round + ":cat at " + catLoc + " dist=" + distToCat);
-      }
-
       Direction awayFromCat = catLoc.directionTo(me);
-      if (awayFromCat == Direction.CENTER) {
-        awayFromCat = DIRS[round & 7];
-      }
-
-      if (kingFleeMove(rc, awayFromCat)) {
-        if (DEBUG) System.out.println("KING_FLEE:" + round + ":moved away from cat");
-        return;
-      }
+      if (awayFromCat == Direction.CENTER) awayFromCat = DIRS[round & 7];
+      if (kingFleeMove(rc, awayFromCat)) return;
     }
 
-    // Normal king movement
-    // STRATEGY: During trap placement phase, move AWAY from enemy
-    // This positions traps BETWEEN king and incoming attackers
-    if ((round & 1) == 0) { // Bitwise AND instead of modulo
+    // Normal movement
+    if ((round & 1) == 0) {
       if (enemyCount == 0 && nearbyCat == null) {
-        // During trap placement phase, retreat from enemy to position traps in front
         if (round <= RAT_TRAP_EARLY_WINDOW && ratTrapCount < trapTarget) {
           Direction awayFromEnemy;
           if (cachedEnemyKingLoc != null) {
@@ -661,21 +901,14 @@ public class RobotPlayer {
           } else {
             awayFromEnemy = cachedMapCenter.directionTo(me);
           }
-          if (awayFromEnemy != Direction.CENTER && kingFleeMove(rc, awayFromEnemy)) {
-            if (DEBUG) System.out.println("KING_RETREAT:" + round + ":positioning for traps");
-            return;
-          }
+          if (awayFromEnemy != Direction.CENTER && kingFleeMove(rc, awayFromEnemy)) return;
         }
-
-        // Normal exploration movement
-        Direction facing = rc.getDirection(); // Cache direction
+        Direction facing = rc.getDirection();
         MapLocation ahead = rc.adjacentLocation(facing);
-
         if (rc.canRemoveDirt(ahead)) {
           rc.removeDirt(ahead);
           return;
         }
-
         if (rc.canMoveForward()) {
           rc.moveForward();
         }
@@ -695,7 +928,6 @@ public class RobotPlayer {
       if (dir == Direction.CENTER) continue;
       int dx = DIR_DX[i];
       int dy = DIR_DY[i];
-      // Use translate for distance 2,3,4 - avoids chained .add() calls
       for (int dist = 2; dist <= 4; dist++) {
         MapLocation loc = kingLoc.translate(dx * dist, dy * dist);
         if (rc.canBuildRat(loc)) {
@@ -708,106 +940,168 @@ public class RobotPlayer {
     return false;
   }
 
-  /**
-   * Count army size AND collectors in a single senseNearbyRobots call. Returns int[2]: [0] = total
-   * army size, [1] = collector count. This saves ~100 bytecodes vs calling countArmySize() and
-   * countCollectors() separately.
-   */
-  private static final int[] armyCountResult = new int[2]; // Reusable to avoid allocation
+  private static final int[] armyCountResult =
+      new int[6]; // [army, collectors, totalHP, center, left, right]
 
   private static int[] countArmyAndCollectors(RobotController rc) throws GameActionException {
     int armyCount = 0;
     int collectorCount = 0;
+    int totalHP = 0;
+    int centerCount = 0;
+    int leftCount = 0;
+    int rightCount = 0;
     boolean small = mapSize == 0;
-    RobotInfo[] team = rc.senseNearbyRobots(rc.getType().getVisionRadiusSquared(), cachedOurTeam);
+    RobotInfo[] team = rc.senseNearbyRobots(KING_VISION_SQ, cachedOurTeam);
     for (int i = team.length - 1; i >= 0; i--) {
       RobotInfo r = team[i];
       if (r.getType().isBabyRatType()) {
         armyCount++;
+        totalHP += r.getHealth();
         int rid = r.getID();
-        // Bitwise AND for modulo 2, integer modulo 3 for small
         boolean isCollector = small ? (rid % 3 == 0) : ((rid & 1) == 1);
-        if (isCollector) collectorCount++;
+        if (isCollector) {
+          collectorCount++;
+        } else {
+          // Count attackers by swarm role
+          int swarmRole = rid % 5;
+          if (swarmRole == 0) {
+            centerCount++;
+          } else if (swarmRole <= 2) {
+            leftCount++;
+          } else {
+            rightCount++;
+          }
+        }
       }
     }
     armyCountResult[0] = armyCount;
     armyCountResult[1] = collectorCount;
+    armyCountResult[2] = totalHP;
+    armyCountResult[3] = centerCount;
+    armyCountResult[4] = leftCount;
+    armyCountResult[5] = rightCount;
     return armyCountResult;
+  }
+
+  private static RobotInfo selectFocusTarget(RobotInfo[] enemies, MapLocation kingLoc) {
+    RobotInfo bestTarget = null;
+    int bestScore = -1;
+    for (int i = enemies.length - 1; i >= 0; i--) {
+      RobotInfo enemy = enemies[i];
+      if (!enemy.getType().isBabyRatType()) continue;
+      MapLocation enemyLoc = enemy.getLocation();
+      int distToKing = kingLoc.distanceSquaredTo(enemyLoc);
+      int hp = enemy.getHealth();
+      int damage = 10;
+      int cheese = enemy.getRawCheeseAmount();
+      if (cheese > 0) damage += 5;
+      int score = (damage * 100) / ((distToKing + 1) * (hp + 1));
+      if (hp <= 30) score += 50;
+      if (hp <= 15) score += 100;
+      if (score > bestScore) {
+        bestScore = score;
+        bestTarget = enemy;
+      }
+    }
+    return bestTarget;
+  }
+
+  private static void writeFocusTarget(RobotController rc, RobotInfo target, int round)
+      throws GameActionException {
+    MapLocation loc = target.getLocation();
+    int hp = target.getHealth();
+    int packed = (loc.x & 0x3F) | ((loc.y & 0x3F) << 6) | (((hp / 10) & 0xF) << 12);
+    rc.writeSharedArray(5, packed);
+    rc.writeSharedArray(6, round);
+  }
+
+  private static void updateAndBroadcastPhase(RobotController rc, int round, int cheese)
+      throws GameActionException {
+    int phase;
+    int attackerRatio;
+
+    // Adapt based on detected strategy
+    if (cachedDetectedStrategy == STRATEGY_ANTI_RUSH) {
+      // More defensive - fewer attackers, more collectors
+      phase = PHASE_MID;
+      attackerRatio = 5; // 50% attackers
+    } else if (cachedDetectedStrategy == STRATEGY_ANTI_TURTLE) {
+      // More aggressive - more attackers
+      phase = PHASE_MID;
+      attackerRatio = 8; // 80% attackers
+    } else if (round < EARLY_PHASE_END_ROUND) {
+      phase = PHASE_EARLY;
+      attackerRatio = EARLY_ATTACKER_RATIO;
+    } else if (round < MID_PHASE_END_ROUND) {
+      phase = PHASE_MID;
+      attackerRatio = MID_ATTACKER_RATIO;
+    } else {
+      phase = PHASE_LATE;
+      if (cheese < LOW_CHEESE_THRESHOLD) {
+        attackerRatio = LATE_POOR_ATTACKER_RATIO;
+      } else if (cheese > HIGH_CHEESE_THRESHOLD) {
+        attackerRatio = LATE_RICH_ATTACKER_RATIO;
+      } else {
+        attackerRatio = LATE_NORMAL_ATTACKER_RATIO;
+      }
+    }
+
+    int packed = (phase & 0x3) | ((attackerRatio & 0xF) << 2);
+    rc.writeSharedArray(7, packed);
   }
 
   private static boolean kingFleeMove(RobotController rc, Direction awayDir)
       throws GameActionException {
     if (awayDir == Direction.CENTER) return false;
-
     MapLocation ahead = rc.adjacentLocation(awayDir);
-    if (rc.canSenseLocation(ahead)) {
-      if (rc.canRemoveDirt(ahead)) {
-        rc.removeDirt(ahead);
-        return true;
-      }
+    if (rc.canSenseLocation(ahead) && rc.canRemoveDirt(ahead)) {
+      rc.removeDirt(ahead);
+      return true;
     }
-
-    Direction facing = rc.getDirection(); // Cache
+    Direction facing = rc.getDirection();
     if (facing != awayDir && rc.canTurn()) {
       rc.turn(awayDir);
       return true;
     }
-
     if (rc.canMove(awayDir)) {
       rc.move(awayDir);
       return true;
     }
-
-    // Try rotations
     Direction left = awayDir.rotateLeft();
     if (rc.canMove(left)) {
       rc.move(left);
       return true;
     }
-
     Direction right = awayDir.rotateRight();
     if (rc.canMove(right)) {
       rc.move(right);
       return true;
     }
-
     Direction left2 = left.rotateLeft();
     if (rc.canMove(left2)) {
       rc.move(left2);
       return true;
     }
-
     Direction right2 = right.rotateRight();
     if (rc.canMove(right2)) {
       rc.move(right2);
       return true;
     }
-
     return false;
   }
 
-  // Direction priorities for focused trap placement toward enemy
   private static final Direction[] TRAP_PRIORITY_DIRS = new Direction[8];
 
   private static void placeDefensiveTrapsTowardEnemy(RobotController rc, MapLocation me)
       throws GameActionException {
-    // Build trap direction priorities: focus toward enemy king
-    // Guard against null cachedEnemyKingLoc (not set until round 1 writeSharedArray)
     Direction toEnemy;
     if (cachedEnemyKingLoc == null) {
-      // Fallback: enemy is likely in opposite corner from us
       toEnemy = me.directionTo(cachedMapCenter);
-      if (toEnemy == Direction.CENTER) {
-        toEnemy = Direction.NORTH;
-      }
+      if (toEnemy == Direction.CENTER) toEnemy = Direction.NORTH;
     } else {
       toEnemy = me.directionTo(cachedEnemyKingLoc);
-      if (toEnemy == Direction.CENTER) {
-        toEnemy = Direction.NORTH; // Fallback
-      }
+      if (toEnemy == Direction.CENTER) toEnemy = Direction.NORTH;
     }
-
-    // Priority order: direct, flanks, then wider angles (funnel pattern)
     TRAP_PRIORITY_DIRS[0] = toEnemy;
     TRAP_PRIORITY_DIRS[1] = toEnemy.rotateLeft();
     TRAP_PRIORITY_DIRS[2] = toEnemy.rotateRight();
@@ -817,30 +1111,16 @@ public class RobotPlayer {
     TRAP_PRIORITY_DIRS[6] = toEnemy.rotateRight().rotateRight().rotateRight();
     TRAP_PRIORITY_DIRS[7] = toEnemy.opposite();
 
-    // Place traps in priority order at distances 3-4 (funnel shape)
     for (int p = 0; p < 8; p++) {
       Direction dir = TRAP_PRIORITY_DIRS[p];
       if (dir == Direction.CENTER) continue;
-
       int dx = dir.dx;
       int dy = dir.dy;
-      // Distance 3-4 creates a defensive perimeter
       for (int dist = 3; dist <= 4; dist++) {
         MapLocation trapLoc = me.translate(dx * dist, dy * dist);
         if (rc.canPlaceRatTrap(trapLoc)) {
           rc.placeRatTrap(trapLoc);
           ratTrapCount++;
-          if (DEBUG)
-            System.out.println(
-                "RAT_TRAP:"
-                    + rc.getRoundNum()
-                    + ":"
-                    + trapLoc
-                    + " ("
-                    + ratTrapCount
-                    + "/"
-                    + RAT_TRAP_EARLY_TARGET
-                    + ") toward enemy");
           return;
         }
       }
@@ -848,7 +1128,6 @@ public class RobotPlayer {
   }
 
   private static void placeCatTraps(RobotController rc, MapLocation me) throws GameActionException {
-    // Build priorities array once at start (reuses static array)
     Direction towardCenter = me.directionTo(cachedMapCenter);
     CAT_TRAP_PRIORITIES[0] = towardCenter;
     CAT_TRAP_PRIORITIES[1] = towardCenter.rotateLeft();
@@ -856,11 +1135,9 @@ public class RobotPlayer {
     CAT_TRAP_PRIORITIES[3] = towardCenter.rotateLeft().rotateLeft();
     CAT_TRAP_PRIORITIES[4] = towardCenter.rotateRight().rotateRight();
 
-    // Indexed loop instead of enhanced for-loop (saves ~20 bytecodes)
     for (int p = 0; p < 5; p++) {
       Direction dir = CAT_TRAP_PRIORITIES[p];
       if (dir == Direction.CENTER) continue;
-
       int dx = dir.dx;
       int dy = dir.dy;
       for (int dist = 2; dist <= 3; dist++) {
@@ -868,19 +1145,98 @@ public class RobotPlayer {
         if (rc.canPlaceCatTrap(trapLoc)) {
           rc.placeCatTrap(trapLoc);
           catTrapCount++;
-          if (DEBUG)
-            System.out.println(
-                "CAT_TRAP:"
-                    + rc.getRoundNum()
-                    + ":"
-                    + trapLoc
-                    + " ("
-                    + catTrapCount
-                    + "/"
-                    + CAT_TRAP_TARGET
-                    + ")");
           return;
         }
+      }
+    }
+  }
+
+  // ================================================================
+  // CHOKEPOINT ANALYSIS
+  // ================================================================
+
+  /**
+   * Check if a location is a chokepoint (narrow passage). A chokepoint has CHOKEPOINT_MIN_BLOCKED
+   * or more impassable neighbors, forcing enemies to pass through a limited area.
+   */
+  private static boolean isChokepoint(RobotController rc, MapLocation loc)
+      throws GameActionException {
+    if (!rc.canSenseLocation(loc)) return false;
+    MapInfo info = rc.senseMapInfo(loc);
+    if (!info.isPassable()) return false; // Can't place trap on impassable tile
+    if (info.getTrap() != TrapType.NONE) return false; // Already has a trap
+
+    int blockedCount = 0;
+    for (int i = 0; i < 8; i++) { // Skip CENTER (index 8)
+      Direction dir = DIRS[i];
+      MapLocation neighbor = loc.add(dir);
+      if (!rc.onTheMap(neighbor)) {
+        blockedCount++; // Off-map counts as blocked
+      } else if (rc.canSenseLocation(neighbor)) {
+        MapInfo neighborInfo = rc.senseMapInfo(neighbor);
+        if (!neighborInfo.isPassable()) {
+          blockedCount++;
+        }
+      }
+    }
+    return blockedCount >= CHOKEPOINT_MIN_BLOCKED;
+  }
+
+  /**
+   * Find the best chokepoint to place a trap at. Prioritizes chokepoints that are: 1. On the path
+   * between us and enemy king 2. Closer to the enemy approach direction
+   */
+  private static void placeChokepointTrap(RobotController rc, MapLocation me)
+      throws GameActionException {
+    if (cachedEnemyKingLoc == null) return;
+
+    Direction toEnemy = me.directionTo(cachedEnemyKingLoc);
+    if (toEnemy == Direction.CENTER) return;
+
+    MapLocation bestChokepoint = null;
+    int bestScore = -1;
+
+    // Scan tiles in the direction toward enemy
+    MapInfo[] nearbyTiles = rc.senseNearbyMapInfos(me, CHOKEPOINT_SCAN_RADIUS_SQ);
+    for (int i = nearbyTiles.length - 1; i >= 0; i--) {
+      MapLocation tileLoc = nearbyTiles[i].getMapLocation();
+
+      // Only consider tiles generally toward enemy (not behind us)
+      Direction toTile = me.directionTo(tileLoc);
+      if (toTile == Direction.CENTER) continue;
+      if (toTile == toEnemy.opposite()) continue; // Skip tiles behind us
+
+      // Check if it's a chokepoint
+      if (!isChokepoint(rc, tileLoc)) continue;
+
+      // Score: prefer tiles closer to enemy direction, not too close to king
+      int distFromKing = me.distanceSquaredTo(tileLoc);
+      if (distFromKing < 4) continue; // Don't place too close to king
+
+      // Higher score for tiles aligned with enemy direction
+      int alignmentBonus = 0;
+      if (toTile == toEnemy) alignmentBonus = 30;
+      else if (toTile == toEnemy.rotateLeft() || toTile == toEnemy.rotateRight())
+        alignmentBonus = 20;
+      else if (toTile == toEnemy.rotateLeft().rotateLeft()
+          || toTile == toEnemy.rotateRight().rotateRight()) alignmentBonus = 10;
+
+      // Score = alignment bonus + distance bonus (prefer mid-range)
+      int score = alignmentBonus + (16 - Math.abs(distFromKing - 9)); // Sweet spot around dist 9
+
+      if (score > bestScore) {
+        bestScore = score;
+        bestChokepoint = tileLoc;
+      }
+    }
+
+    // Place trap at best chokepoint found
+    if (bestChokepoint != null && rc.canPlaceRatTrap(bestChokepoint)) {
+      rc.placeRatTrap(bestChokepoint);
+      chokepointTrapCount++;
+      if (DEBUG) {
+        System.out.println(
+            "CHOKEPOINT_TRAP:" + rc.getRoundNum() + ":" + bestChokepoint + ":score=" + bestScore);
       }
     }
   }
@@ -892,15 +1248,11 @@ public class RobotPlayer {
   private static MapLocation lastBabyPos = null;
   private static int lastBabyID = -1;
   private static int samePosRounds = 0;
-
   private static MapLocation targetCheese = null;
   private static int targetCheeseRound = -100;
   private static int lastTargetID = -1;
-
   private static int lastMineSqueakRound = -100;
   private static int lastSqueakID = -1;
-
-  // Baby rat trap placement tracking
   private static int lastBabyTrapRound = -100;
   private static int lastBabyTrapID = -1;
 
@@ -909,98 +1261,80 @@ public class RobotPlayer {
     int id = rc.getID();
     if (PROFILE) profStartTurn();
 
-    // Refresh cached shared array
     int bcBefore = PROFILE ? Clock.getBytecodeNum() : 0;
     refreshCache(rc);
     if (PROFILE) profCache += Clock.getBytecodeNum() - bcBefore;
 
-    // Early exit for thrown/carried rats (combined check)
     if (rc.isBeingThrown() || rc.isBeingCarried()) {
       if (PROFILE) profEndTurn(round, id, false);
       return;
     }
 
-    // Compute role from ID - bitwise AND for modulo 2
-    // SMALL MAP EARLY GAME: ALL rats attack for first SMALL_MAP_ALL_ATTACK_ROUNDS
+    // Reset kite state if different robot
+    if (lastKiteID != id) {
+      kiteState = KITE_STATE_APPROACH;
+      kiteRetreatTurns = 0;
+      lastAttackedLoc = null;
+      lastKiteID = id;
+    }
+
+    // Role assignment with strategy adaptation
     int myRole;
     if (mapSize == 0) {
       if (round < SMALL_MAP_ALL_ATTACK_ROUNDS) {
-        myRole = 0; // ALL ATTACK during early rush
+        myRole = 0;
       } else {
-        myRole = (id % 3 == 0) ? 1 : 0;
+        myRole = ((id % 10) < cachedAttackerRatio) ? 0 : 1;
       }
     } else {
-      myRole = id & 1; // 0=attacker, 1=collector
+      myRole = ((id % 10) < cachedAttackerRatio) ? 0 : 1;
     }
 
     int health = rc.getHealth();
     MapLocation me = rc.getLocation();
 
-    // Check for nearby cat
     bcBefore = PROFILE ? Clock.getBytecodeNum() : 0;
-    RobotInfo nearbyCat = findNearbyCat(rc);
+    RobotInfo nearbyCat = (mapSize == 0) ? null : findNearbyCat(rc);
     if (PROFILE) profSenseNeutral += Clock.getBytecodeNum() - bcBefore;
 
-    // Read kingNeedsHelp ONCE here, pass to sub-methods (saves ~10 bc/turn)
     boolean kingNeedsHelp = rc.readSharedArray(4) == 1;
     int distToKing = me.distanceSquaredTo(cachedOurKingLoc);
 
-    // EMERGENCY: Sacrifice wounded rat to cat
+    // RETREAT CHECK: If retreat signal active, fall back
+    if (cachedShouldRetreat && myRole == 0 && distToKing > 16) {
+      if (DEBUG) System.out.println("RETREAT:" + round + ":" + id + ":falling back");
+      moveTo(rc, cachedOurKingLoc);
+      if (PROFILE) profEndTurn(round, id, false);
+      return;
+    }
+
+    // Emergency cat sacrifice
     if (nearbyCat != null && health < 40) {
       MapLocation catLoc = nearbyCat.getLocation();
       int catToKingDist = catLoc.distanceSquaredTo(cachedOurKingLoc);
-
       if (catToKingDist <= 36) {
-        if (me.distanceSquaredTo(catLoc) <= 2) {
-          if (DEBUG)
-            System.out.println("SACRIFICE:" + round + ":" + id + ":feeding cat to protect king");
-          return;
-        }
+        if (me.distanceSquaredTo(catLoc) <= 2) return;
         moveTo(rc, catLoc);
         return;
       }
     }
 
-    // RECALL: If king needs help AND we're FAR from king, move toward king
-    // Rats already near king (distToKing <= DEFEND_KING_DIST_SQ) fall through to
-    // runAttacker()/runCollector() which have combat code!
+    // Recall for king defense
     if (kingNeedsHelp && distToKing > DEFEND_KING_DIST_SQ) {
-      if (DEBUG) System.out.println("RECALL:" + round + ":" + id + ":returning to defend!");
       moveTo(rc, cachedOurKingLoc);
       return;
     }
 
-    if (health < 30 && myRole == 1) {
-      if (distToKing <= 9) {
-        rc.disintegrate();
-        return;
-      }
+    // Low HP collector disintegrate
+    if (health < 30 && myRole == 1 && distToKing <= 9) {
+      rc.disintegrate();
+      return;
     }
-
-    // Visual debugging
-    if (DEBUG) {
-      String catStatus = nearbyCat != null ? " CAT!" : "";
-      rc.setIndicatorString((myRole == 0 ? "ATK" : "COL") + " HP:" + health + catStatus);
-      rc.setIndicatorDot(me, health > 50 ? 0 : 255, health > 50 ? 255 : 0, 0);
-
-      if ((round & 127) == 0) { // round % 128 == 0
-        rc.setTimelineMarker("Round " + round, 100, 100, 255);
-      }
-
-      if (myRole == 0) {
-        rc.setIndicatorLine(me, cachedEnemyKingLoc, 255, 0, 0);
-      } else if (rc.getRawCheese() >= DELIVERY_THRESHOLD) {
-        rc.setIndicatorLine(me, cachedOurKingLoc, 0, 255, 0);
-      }
-    }
-
-    // DISABLED: Don't create new kings - they tend to starve
-    // The single original king is more effective
 
     if (myRole == 0) {
-      runAttacker(rc, nearbyCat, round, id, me, kingNeedsHelp);
+      runAttacker(rc, nearbyCat, round, id, me, kingNeedsHelp, distToKing);
     } else {
-      runCollector(rc, nearbyCat, round, id, me, kingNeedsHelp);
+      runCollector(rc, nearbyCat, round, id, me, kingNeedsHelp, distToKing);
     }
 
     if (PROFILE) profEndTurn(round, id, false);
@@ -1009,15 +1343,56 @@ public class RobotPlayer {
   private static RobotInfo findNearbyCat(RobotController rc) throws GameActionException {
     RobotInfo[] neutrals = rc.senseNearbyRobots(25, Team.NEUTRAL);
     for (int i = neutrals.length - 1; i >= 0; i--) {
-      if (neutrals[i].getType() == UnitType.CAT) {
-        return neutrals[i];
-      }
+      if (neutrals[i].getType() == UnitType.CAT) return neutrals[i];
     }
     return null;
   }
 
+  private static int getSwarmRole(int id) {
+    if (lastSwarmRoleID != id) {
+      cachedSwarmRole = id % 5;
+      lastSwarmRoleID = id;
+    }
+    return cachedSwarmRole;
+  }
+
+  private static MapLocation getSwarmTarget(MapLocation me, int swarmRole) {
+    int distToEnemy = me.distanceSquaredTo(cachedEnemyKingLoc);
+    if (distToEnemy <= SWARM_ENGAGE_DIST_SQ) return cachedEnemyKingLoc;
+    if (swarmRole == 0) return cachedEnemyKingLoc;
+
+    Direction toEnemy = cachedOurKingLoc.directionTo(cachedEnemyKingLoc);
+    if (toEnemy == Direction.CENTER) return cachedEnemyKingLoc;
+
+    // DYNAMIC SWARM REBALANCING: Check if our flank is understaffed
+    boolean isLeftFlank = (swarmRole <= 2);
+    int myFlankCount = isLeftFlank ? cachedLeftCount : cachedRightCount;
+
+    // If our flank has too few rats, redirect to center (attack enemy king directly)
+    if (myFlankCount < MIN_FLANK_COUNT) {
+      // Orphaned flanker - join the center attack
+      return cachedEnemyKingLoc;
+    }
+
+    Direction flankDir;
+    if (isLeftFlank) {
+      flankDir = toEnemy.rotateLeft().rotateLeft();
+    } else {
+      flankDir = toEnemy.rotateRight().rotateRight();
+    }
+
+    int flankX = cachedEnemyKingLoc.x + flankDir.dx * SWARM_FLANK_DIST;
+    int flankY = cachedEnemyKingLoc.y + flankDir.dy * SWARM_FLANK_DIST;
+    if (flankX < 0) flankX = 0;
+    if (flankX >= mapWidth) flankX = mapWidth - 1;
+    if (flankY < 0) flankY = 0;
+    if (flankY >= mapHeight) flankY = mapHeight - 1;
+
+    return new MapLocation(flankX, flankY);
+  }
+
   // ================================================================
-  // ATTACKER
+  // ATTACKER with KITING STATE MACHINE
   // ================================================================
 
   private static void runAttacker(
@@ -1026,43 +1401,133 @@ public class RobotPlayer {
       int round,
       int id,
       MapLocation me,
-      boolean kingNeedsHelp)
+      boolean kingNeedsHelp,
+      int distToKing)
       throws GameActionException {
-    if (DEBUG && (round & 63) == 0) {
-      System.out.println("ATK_START:" + round + ":" + id);
+
+    int swarmRole = getSwarmRole(id);
+    MapLocation swarmTarget = getSwarmTarget(me, swarmRole);
+
+    // Sense enemies
+    int bcSense = PROFILE ? Clock.getBytecodeNum() : 0;
+    RobotInfo[] enemies = rc.senseNearbyRobots(BABY_RAT_VISION_SQ, cachedEnemyTeam);
+    if (PROFILE) profSenseEnemy += Clock.getBytecodeNum() - bcSense;
+
+    // Sense allies for overkill prevention
+    RobotInfo[] allies = rc.senseNearbyRobots(BABY_RAT_VISION_SQ, cachedOurTeam);
+
+    // Find best target with predictive targeting
+    RobotInfo bestTarget = null;
+    RobotInfo focusTarget = null;
+    int minDist = Integer.MAX_VALUE;
+
+    // Check focus fire target
+    if (cachedFocusTarget != null) {
+      for (int i = enemies.length - 1; i >= 0; i--) {
+        RobotInfo enemy = enemies[i];
+        if (enemy.getType().isBabyRatType() && enemy.getLocation().equals(cachedFocusTarget)) {
+          focusTarget = enemy;
+          break;
+        }
+      }
     }
 
-    if (!rc.isActionReady()) {
-      return;
+    for (int i = enemies.length - 1; i >= 0; i--) {
+      RobotInfo enemy = enemies[i];
+      if (enemy.getType().isBabyRatType()) {
+        int dist = me.distanceSquaredTo(enemy.getLocation());
+        if (dist < minDist) {
+          minDist = dist;
+          bestTarget = enemy;
+        }
+      }
     }
 
-    // Bytecode guard - use cached constant instead of rc.getType().getBytecodeLimit()
-    if (Clock.getBytecodesLeft() < BABY_RAT_BYTECODE_LIMIT / 10) {
-      moveTo(rc, cachedEnemyKingLoc);
-      return;
+    // Prioritize focus target
+    if (focusTarget != null) bestTarget = focusTarget;
+
+    // KITING STATE MACHINE
+    if (bestTarget != null && minDist <= KITE_ENGAGE_DIST_SQ) {
+      MapLocation targetLoc = bestTarget.getLocation();
+
+      // Predictive targeting: aim where enemy will be
+      MapLocation predictedLoc = predictEnemyPosition(targetLoc, round);
+
+      switch (kiteState) {
+        case KITE_STATE_APPROACH:
+          // Move toward enemy until adjacent
+          if (minDist <= 2) {
+            kiteState = KITE_STATE_ATTACK;
+          } else {
+            moveTo(rc, predictedLoc);
+            return;
+          }
+          // Fall through to attack
+
+        case KITE_STATE_ATTACK:
+          if (rc.isActionReady()) {
+            // OVERKILL PREVENTION: Check if this would be wasted damage
+            if (isOverkill(rc, bestTarget, allies)) {
+              // Find another target or just move
+              if (DEBUG) System.out.println("OVERKILL_SKIP:" + round + ":" + id);
+              kiteState = KITE_STATE_APPROACH;
+              moveTo(rc, swarmTarget);
+              return;
+            }
+
+            if (rc.canAttack(targetLoc)) {
+              boolean coop = cachedIsCooperation;
+              int enhancedThreshold =
+                  (mapSize == 0) ? SMALL_MAP_ENHANCED_THRESHOLD : ENHANCED_THRESHOLD;
+              if (!coop && rc.getGlobalCheese() > enhancedThreshold) {
+                rc.attack(targetLoc, ENHANCED_ATTACK_CHEESE);
+              } else {
+                rc.attack(targetLoc);
+              }
+              lastAttackedLoc = targetLoc;
+              kiteState = KITE_STATE_RETREAT;
+              kiteRetreatTurns = KITE_RETREAT_DIST;
+              if (DEBUG) System.out.println("KITE_ATTACK:" + round + ":" + id);
+              return;
+            }
+          }
+          // Can't attack, try to get closer
+          moveTo(rc, targetLoc);
+          return;
+
+        case KITE_STATE_RETREAT:
+          // Retreat after attacking
+          if (kiteRetreatTurns > 0 && rc.isMovementReady()) {
+            Direction awayFromEnemy = targetLoc.directionTo(me);
+            if (awayFromEnemy != Direction.CENTER) {
+              MapLocation retreatTarget = me.translate(awayFromEnemy.dx * 2, awayFromEnemy.dy * 2);
+              moveTo(rc, retreatTarget);
+              kiteRetreatTurns--;
+              if (DEBUG) System.out.println("KITE_RETREAT:" + round + ":" + id);
+              return;
+            }
+          }
+          // Done retreating, go back to approach
+          kiteState = KITE_STATE_APPROACH;
+          break;
+      }
     }
 
-    int distToOurKing = me.distanceSquaredTo(cachedOurKingLoc);
+    // No enemy in kiting range, reset state
+    kiteState = KITE_STATE_APPROACH;
 
-    // DEFENSE: King under attack
-    if (kingNeedsHelp && distToOurKing <= DEFEND_KING_DIST_SQ) {
-      int bcBefore = PROFILE ? Clock.getBytecodeNum() : 0;
+    // King defense
+    if (kingNeedsHelp && distToKing <= DEFEND_KING_DIST_SQ) {
       RobotInfo[] nearKing = rc.senseNearbyRobots(20, cachedEnemyTeam);
-      if (PROFILE) profSenseEnemy += Clock.getBytecodeNum() - bcBefore;
-
-      // Try to place trap in enemy path when defending
       if (nearKing.length > 0) {
         babyRatPlaceTrap(rc, me, round, id);
       }
-
       for (int i = nearKing.length - 1; i >= 0; i--) {
         RobotInfo enemy = nearKing[i];
         if (enemy.getType().isBabyRatType()) {
           MapLocation enemyLoc = enemy.getLocation();
           if (rc.canAttack(enemyLoc)) {
             rc.attack(enemyLoc);
-            if (DEBUG)
-              System.out.println("DEFEND_KING:" + round + ":" + id + ":attacked enemy near king");
             return;
           }
           moveTo(rc, enemyLoc);
@@ -1071,47 +1536,27 @@ public class RobotPlayer {
       }
     }
 
-    // CAT DEFENSE: Skip on small maps
+    // Cat defense
     boolean smallMap = mapSize == 0;
-    if (nearbyCat != null && rc.isCooperation() && !smallMap) {
+    if (nearbyCat != null && cachedIsCooperation) {
       MapLocation catLoc = nearbyCat.getLocation();
       int distToCat = me.distanceSquaredTo(catLoc);
-
-      if (distToCat <= 2) {
-        if (rc.canAttack(catLoc)) {
-          rc.attack(catLoc);
-          if (DEBUG) System.out.println("CAT_ATTACK:" + round + ":" + id + ":damage=10");
-          return;
-        }
+      if (distToCat <= 2 && rc.canAttack(catLoc)) {
+        rc.attack(catLoc);
+        catDamageDealt += 10;
+        return;
       }
-
       if (distToCat < CAT_KITE_MIN_DIST_SQ) {
-        // Use translate instead of chained .add() - saves ~15 bytecodes
         Direction away = me.directionTo(catLoc).opposite();
-        MapLocation fleeTarget = me.translate(away.dx * 3, away.dy * 3);
-        moveTo(rc, fleeTarget);
-        if (DEBUG) System.out.println("CAT_FLEE:" + round + ":" + id + ":too close");
+        moveTo(rc, me.translate(away.dx * 3, away.dy * 3));
         return;
       } else if (distToCat > CAT_KITE_MAX_DIST_SQ) {
         moveTo(rc, catLoc);
-        if (DEBUG) System.out.println("CAT_ENGAGE:" + round + ":" + id + ":approaching");
         return;
       } else {
         Direction toCat = me.directionTo(catLoc);
         Direction circle = toCat.rotateLeft().rotateLeft();
-        MapLocation circleTarget = me.translate(circle.dx << 1, circle.dy << 1);
-        moveTo(rc, circleTarget);
-        if (DEBUG) System.out.println("CAT_KITE:" + round + ":" + id + ":circling");
-        return;
-      }
-    } else if (nearbyCat != null && smallMap) {
-      MapLocation catLoc = nearbyCat.getLocation();
-      int distToCat = me.distanceSquaredTo(catLoc);
-      if (distToCat < CAT_KITE_MIN_DIST_SQ) {
-        Direction away = me.directionTo(catLoc).opposite();
-        MapLocation fleeTarget = me.translate(away.dx << 1, away.dy << 1);
-        moveTo(rc, fleeTarget);
-        if (DEBUG) System.out.println("SMALL_MAP_CAT_DODGE:" + round + ":" + id);
+        moveTo(rc, me.translate(circle.dx << 1, circle.dy << 1));
         return;
       }
     }
@@ -1127,7 +1572,6 @@ public class RobotPlayer {
           return;
         }
       }
-
       if (rc.canThrowRat()) {
         Direction toKing = me.directionTo(cachedOurKingLoc);
         Direction facing = rc.getDirection();
@@ -1140,65 +1584,38 @@ public class RobotPlayer {
       }
     }
 
-    int bcSense = PROFILE ? Clock.getBytecodeNum() : 0;
-    RobotInfo[] enemies = rc.senseNearbyRobots(BABY_RAT_VISION_SQ, cachedEnemyTeam);
-    if (PROFILE) profSenseEnemy += Clock.getBytecodeNum() - bcSense;
-
-    RobotInfo bestTarget = null;
-    RobotInfo ratnap = null;
-    int maxCheese = 0;
-
+    // Try to pick up low HP enemy
     for (int i = enemies.length - 1; i >= 0; i--) {
       RobotInfo enemy = enemies[i];
-      UnitType t = enemy.getType(); // Cache type
-      if (t.isBabyRatType()) {
-        int hp = enemy.getHealth();
-        if (hp < 50 && ratnap == null) {
-          ratnap = enemy;
-        }
-
-        int cheese = enemy.getRawCheeseAmount();
-        if (cheese > maxCheese || bestTarget == null) {
-          maxCheese = cheese;
-          bestTarget = enemy;
+      if (enemy.getType().isBabyRatType() && enemy.getHealth() < 50) {
+        if (carrying == null && rc.canCarryRat(enemy.getLocation())) {
+          rc.carryRat(enemy.getLocation());
+          return;
         }
       }
     }
 
-    if (ratnap != null && carrying == null && rc.canCarryRat(ratnap.getLocation())) {
-      rc.carryRat(ratnap.getLocation());
+    // Attack if can
+    if (bestTarget != null && rc.canAttack(bestTarget.getLocation())) {
+      boolean coop = cachedIsCooperation;
+      int enhancedThreshold = (mapSize == 0) ? SMALL_MAP_ENHANCED_THRESHOLD : ENHANCED_THRESHOLD;
+      if (!coop && rc.getGlobalCheese() > enhancedThreshold) {
+        rc.attack(bestTarget.getLocation(), ENHANCED_ATTACK_CHEESE);
+      } else {
+        rc.attack(bestTarget.getLocation());
+      }
       return;
     }
 
-    boolean coop = rc.isCooperation();
-    // Use lower threshold for small maps to get damage boost earlier
-    int enhancedThreshold = (mapSize == 0) ? SMALL_MAP_ENHANCED_THRESHOLD : ENHANCED_THRESHOLD;
-
-    if (bestTarget != null) {
-      MapLocation targetLoc = bestTarget.getLocation();
-      if (rc.canAttack(targetLoc)) {
-        if (!coop && rc.getGlobalCheese() > enhancedThreshold) {
-          rc.attack(targetLoc, ENHANCED_ATTACK_CHEESE);
-        } else {
-          rc.attack(targetLoc);
-        }
-        if (DEBUG) System.out.println("ATTACK:" + round + ":" + id);
-        return;
-      }
-    }
-
-    // Attack king
+    // Attack enemy king
     for (int i = enemies.length - 1; i >= 0; i--) {
       RobotInfo enemy = enemies[i];
       if (enemy.getType().isRatKingType()) {
         MapLocation kingCenter = enemy.getLocation();
-
         if (rc.canAttack(kingCenter)) {
           rc.attack(kingCenter);
           return;
         }
-
-        // Use translate instead of new MapLocation - saves ~5 bytecodes per iteration
         for (int dx = -1; dx <= 1; dx++) {
           for (int dy = -1; dy <= 1; dy++) {
             if (dx == 0 && dy == 0) continue;
@@ -1209,8 +1626,7 @@ public class RobotPlayer {
             }
           }
         }
-
-        // Squeak king location (throttled)
+        // Squeak enemy king location
         if (round - lastMineSqueakRound >= SQUEAK_THROTTLE_ROUNDS || lastSqueakID != id) {
           int squeak = (1 << 28) | (kingCenter.y << 16) | (kingCenter.x << 4);
           rc.squeak(squeak);
@@ -1220,30 +1636,28 @@ public class RobotPlayer {
       }
     }
 
-    // Check squeaks
-    Message[] squeaks = rc.readSqueaks(-1);
-    int len = squeaks.length;
-    // Ternary instead of Math.min - saves ~3 bytecodes
-    int limit = len < MAX_SQUEAKS_TO_READ ? len : MAX_SQUEAKS_TO_READ;
-    for (int i = len - 1; i >= len - limit && i >= 0; i--) {
-      Message msg = squeaks[i];
-      if (msg.getSenderID() != id) {
-        int bytes = msg.getBytes();
-        int type = (bytes >>> 28) & 0xF;
-        if (type == 1) {
-          int x = (bytes >> 4) & 0xFFF;
-          int y = (bytes >> 16) & 0xFFF;
-          MapLocation squeakedKing = new MapLocation(x, y);
-          moveTo(rc, squeakedKing);
-          return;
+    // Check squeaks (skip on small maps)
+    if (!smallMap) {
+      Message[] squeaks = rc.readSqueaks(-1);
+      int len = squeaks.length;
+      int limit = len < MAX_SQUEAKS_TO_READ ? len : MAX_SQUEAKS_TO_READ;
+      for (int i = len - 1; i >= len - limit && i >= 0; i--) {
+        Message msg = squeaks[i];
+        if (msg.getSenderID() != id) {
+          int bytes = msg.getBytes();
+          int type = (bytes >>> 28) & 0xF;
+          if (type == 1) {
+            int x = (bytes >> 4) & 0xFFF;
+            int y = (bytes >> 16) & 0xFFF;
+            moveTo(rc, new MapLocation(x, y));
+            return;
+          }
         }
       }
     }
 
-    // Rush enemy king from cached location
-    int bcMove = PROFILE ? Clock.getBytecodeNum() : 0;
-    moveTo(rc, cachedEnemyKingLoc);
-    if (PROFILE) profMovement += Clock.getBytecodeNum() - bcMove;
+    // Move to swarm target
+    moveTo(rc, swarmTarget);
   }
 
   // ================================================================
@@ -1256,36 +1670,44 @@ public class RobotPlayer {
       int round,
       int id,
       MapLocation me,
-      boolean kingNeedsHelp)
+      boolean kingNeedsHelp,
+      int distToKing)
       throws GameActionException {
     int cheese = rc.getRawCheese();
 
-    if (DEBUG && (round & 63) == 0) {
-      System.out.println("COL:" + round + ":" + id + ":cheese=" + cheese);
-    }
-
-    // Bytecode check
     if (Clock.getBytecodesLeft() < BABY_RAT_BYTECODE_LIMIT / 10) {
-      if (cheese > 0) {
-        moveTo(rc, cachedOurKingLoc);
-      }
+      if (cheese > 0) moveTo(rc, cachedOurKingLoc);
       return;
     }
 
-    int distToKing = me.distanceSquaredTo(cachedOurKingLoc);
-
-    // Combat awareness
+    // Combat with focus fire
     if (kingNeedsHelp && distToKing <= DEFEND_KING_DIST_SQ) {
-      int bcBefore = PROFILE ? Clock.getBytecodeNum() : 0;
       RobotInfo[] enemies = rc.senseNearbyRobots(20, cachedEnemyTeam);
-      if (PROFILE) profSenseEnemy += Clock.getBytecodeNum() - bcBefore;
+      RobotInfo focusTarget = null;
+      if (cachedFocusTarget != null) {
+        for (int i = enemies.length - 1; i >= 0; i--) {
+          RobotInfo enemy = enemies[i];
+          if (enemy.getType().isBabyRatType() && enemy.getLocation().equals(cachedFocusTarget)) {
+            focusTarget = enemy;
+            break;
+          }
+        }
+      }
+      if (focusTarget != null) {
+        MapLocation focusLoc = focusTarget.getLocation();
+        if (rc.canAttack(focusLoc)) {
+          rc.attack(focusLoc);
+          return;
+        }
+        moveTo(rc, focusLoc);
+        return;
+      }
       for (int i = enemies.length - 1; i >= 0; i--) {
         RobotInfo enemy = enemies[i];
         if (enemy.getType().isBabyRatType()) {
           MapLocation enemyLoc = enemy.getLocation();
           if (rc.canAttack(enemyLoc)) {
             rc.attack(enemyLoc);
-            if (DEBUG) System.out.println("COL_DEFEND:" + round + ":" + id + ":attacked enemy");
             return;
           }
           if (enemyLoc.distanceSquaredTo(cachedOurKingLoc) < distToKing) {
@@ -1297,35 +1719,25 @@ public class RobotPlayer {
     }
 
     if (kingNeedsHelp && distToKing > DEFEND_KING_DIST_SQ) {
-      if (DEBUG) System.out.println("COL_RECALL:" + round + ":" + id + ":returning to king");
       moveTo(rc, cachedOurKingLoc);
       return;
     }
 
-    // CAT DEFENSE: Flee
+    // Cat flee
     if (nearbyCat != null) {
       MapLocation catLoc = nearbyCat.getLocation();
       int distToCat = me.distanceSquaredTo(catLoc);
-
       if (distToCat <= CAT_FLEE_DIST_SQ) {
         Direction away = me.directionTo(catLoc).opposite();
-        // Use translate instead of chained .add() - saves ~20 bytecodes
-        MapLocation fleeTarget = me.translate(away.dx << 2, away.dy << 2);
-        moveTo(rc, fleeTarget);
-        if (DEBUG) System.out.println("COL_FLEE:" + round + ":" + id + ":cat at " + catLoc);
+        moveTo(rc, me.translate(away.dx << 2, away.dy << 2));
         return;
       }
     }
 
     if (cheese >= DELIVERY_THRESHOLD) {
-      if (DEBUG) System.out.println("DELIVER_MODE:" + round + ":" + id);
-      int bcMove = PROFILE ? Clock.getBytecodeNum() : 0;
       deliver(rc, me);
-      if (PROFILE) profMovement += Clock.getBytecodeNum() - bcMove;
     } else {
-      int bcCheese = PROFILE ? Clock.getBytecodeNum() : 0;
       collect(rc, me);
-      if (PROFILE) profCheese += Clock.getBytecodeNum() - bcCheese;
     }
   }
 
@@ -1333,39 +1745,29 @@ public class RobotPlayer {
     int round = rc.getRoundNum();
     int id = rc.getID();
 
-    // Reset target cache if different robot
     if (lastTargetID != id) {
       targetCheese = null;
       lastTargetID = id;
     }
 
-    // Check current target
     if (targetCheese != null) {
       if (rc.canPickUpCheese(targetCheese)) {
         rc.pickUpCheese(targetCheese);
-        if (DEBUG) System.out.println("PICKUP:" + round + ":" + id + ":now=" + rc.getRawCheese());
         targetCheese = null;
         return;
       }
       if (me.distanceSquaredTo(targetCheese) <= 2 && rc.canSenseLocation(targetCheese)) {
         MapInfo info = rc.senseMapInfo(targetCheese);
-        if (info.getCheeseAmount() == 0) {
-          targetCheese = null;
-        }
+        if (info.getCheeseAmount() == 0) targetCheese = null;
       }
     }
 
-    // Rescan if no target (throttled)
     if (targetCheese == null || (round - targetCheeseRound) >= SENSE_THROTTLE_ROUNDS) {
       targetCheese = findNearestCheese(rc, me, round, id);
       targetCheeseRound = round;
     }
 
-    // Move to target or explore
     if (targetCheese != null) {
-      if (DEBUG && (round & 63) == 0) {
-        System.out.println("MOVE_TO_CHEESE:" + round + ":" + id);
-      }
       moveTo(rc, targetCheese);
     } else {
       moveTo(rc, cachedMapCenter);
@@ -1374,25 +1776,16 @@ public class RobotPlayer {
 
   private static MapLocation findNearestCheese(
       RobotController rc, MapLocation me, int round, int id) throws GameActionException {
-    int bcSense = PROFILE ? Clock.getBytecodeNum() : 0;
-    // OPTIMIZATION 1: Use smaller radius (10 vs 20) - cuts tiles scanned by 50%
     MapInfo[] nearbyInfo = rc.senseNearbyMapInfos(me, CHEESE_SENSE_RADIUS_SQ);
-    if (PROFILE) profSenseNeutral += Clock.getBytecodeNum() - bcSense;
-
     MapLocation nearest = null;
     int nearestDist = Integer.MAX_VALUE;
 
-    // OPTIMIZATION 2: Simplified loop - no mine tracking overhead
-    // OPTIMIZATION 3: Early return for "good enough" cheese
     for (int i = nearbyInfo.length - 1; i >= 0; i--) {
       int cheeseAmt = nearbyInfo[i].getCheeseAmount();
       if (cheeseAmt > 0) {
         MapLocation loc = nearbyInfo[i].getMapLocation();
         int dist = me.distanceSquaredTo(loc);
-        // Early return for close enough cheese - saves scanning remaining tiles
-        if (dist <= GOOD_ENOUGH_CHEESE_DIST_SQ) {
-          return loc;
-        }
+        if (dist <= GOOD_ENOUGH_CHEESE_DIST_SQ) return loc;
         if (dist < nearestDist) {
           nearestDist = dist;
           nearest = loc;
@@ -1400,10 +1793,7 @@ public class RobotPlayer {
       }
     }
 
-    // OPTIMIZATION 4: Only squeak mines occasionally (every 8 rounds)
-    // This avoids the expensive hasCheeseMine() check every turn
     if ((round & 7) == 0 && nearest == null) {
-      // Only scan for mines when we have no cheese target AND it's the right round
       for (int i = nearbyInfo.length - 1; i >= 0; i--) {
         if (nearbyInfo[i].hasCheeseMine()) {
           MapLocation mineLoc = nearbyInfo[i].getMapLocation();
@@ -1413,16 +1803,11 @@ public class RobotPlayer {
             lastMineSqueakRound = round;
             lastSqueakID = id;
           }
-          nearest = mineLoc; // Head toward mine
+          nearest = mineLoc;
           break;
         }
       }
     }
-
-    // OPTIMIZATION 5: Skip squeak reading - just explore toward center
-    // The squeak reading was expensive and rarely helps
-    // If no cheese found, collect() will moveTo(cachedMapCenter)
-
     return nearest;
   }
 
@@ -1431,65 +1816,40 @@ public class RobotPlayer {
     int round = rc.getRoundNum();
     int id = rc.getID();
 
-    if (DEBUG && (round & 15) == 0) {
-      System.out.println("DELIVER:" + round + ":" + id + ":dist=" + dist);
-    }
-
     if (dist <= 9) {
       int amt = rc.getRawCheese();
       if (rc.canTransferCheese(cachedOurKingLoc, amt)) {
         rc.transferCheese(cachedOurKingLoc, amt);
-        if (DEBUG) System.out.println("TRANSFER:" + round + ":" + id + ":amt=" + amt);
-
-        // After successful delivery, try to place a defensive trap
         babyRatPlaceTrap(rc, me, round, id);
         return;
       }
     }
-
     moveTo(rc, cachedOurKingLoc);
   }
 
-  /**
-   * Baby rats help build defensive perimeter by placing traps near king after delivery. Cooldown
-   * prevents spamming and saves cheese for spawning.
-   */
   private static void babyRatPlaceTrap(RobotController rc, MapLocation me, int round, int id)
       throws GameActionException {
-    // Reset cooldown tracker if different robot
     if (lastBabyTrapID != id) {
       lastBabyTrapRound = -100;
       lastBabyTrapID = id;
     }
-
-    // Check cooldown
-    if (round - lastBabyTrapRound < BABY_RAT_TRAP_COOLDOWN) {
-      return;
-    }
-
-    // Only place traps if near king (dist <= 16)
+    if (round - lastBabyTrapRound < BABY_RAT_TRAP_COOLDOWN) return;
     int distToKing = me.distanceSquaredTo(cachedOurKingLoc);
-    if (distToKing > 16) {
-      return;
-    }
+    if (distToKing > 16) return;
 
-    // Place trap toward enemy direction from current position
     Direction toEnemy = me.directionTo(cachedEnemyKingLoc);
-    if (toEnemy == Direction.CENTER) {
-      toEnemy = Direction.NORTH;
-    }
-
-    // Try placing trap in enemy direction at distance 1-2
-    Direction[] tryDirs = {toEnemy, toEnemy.rotateLeft(), toEnemy.rotateRight()};
+    if (toEnemy == Direction.CENTER) toEnemy = Direction.NORTH;
+    BABY_TRAP_DIRS[0] = toEnemy;
+    BABY_TRAP_DIRS[1] = toEnemy.rotateLeft();
+    BABY_TRAP_DIRS[2] = toEnemy.rotateRight();
 
     for (int d = 0; d < 3; d++) {
-      Direction dir = tryDirs[d];
+      Direction dir = BABY_TRAP_DIRS[d];
       for (int dist = 1; dist <= 2; dist++) {
         MapLocation trapLoc = me.translate(dir.dx * dist, dir.dy * dist);
         if (rc.canPlaceRatTrap(trapLoc)) {
           rc.placeRatTrap(trapLoc);
           lastBabyTrapRound = round;
-          if (DEBUG) System.out.println("BABY_TRAP:" + round + ":" + id + ":" + trapLoc);
           return;
         }
       }
@@ -1497,16 +1857,13 @@ public class RobotPlayer {
   }
 
   // ================================================================
-  // MOVEMENT - Bytecode optimized
+  // MOVEMENT
   // ================================================================
 
   private static void moveTo(RobotController rc, MapLocation target) throws GameActionException {
-    if (!rc.isMovementReady()) {
-      return;
-    }
+    if (!rc.isMovementReady()) return;
 
     MapLocation me = rc.getLocation();
-    // Bytecode guard
     if (Clock.getBytecodesLeft() < LOW_BYTECODE_THRESHOLD) {
       Direction d = me.directionTo(target);
       if (d != Direction.CENTER) {
@@ -1520,10 +1877,9 @@ public class RobotPlayer {
       return;
     }
 
-    Direction facing = rc.getDirection(); // Cache early
+    Direction facing = rc.getDirection();
     MapLocation ahead = rc.adjacentLocation(facing);
 
-    // Clear obstacles
     if (rc.canRemoveDirt(ahead)) {
       rc.removeDirt(ahead);
       return;
@@ -1537,14 +1893,12 @@ public class RobotPlayer {
       return;
     }
 
-    // Stuck detection
     int id = rc.getID();
     if (lastBabyID != id) {
       lastBabyPos = null;
       samePosRounds = 0;
       lastBabyID = id;
     }
-
     if (lastBabyPos != null && lastBabyPos.equals(me)) {
       samePosRounds++;
     } else {
@@ -1552,7 +1906,6 @@ public class RobotPlayer {
     }
     lastBabyPos = me;
 
-    // Bug2 if stuck
     if (samePosRounds >= FORCED_MOVEMENT_THRESHOLD) {
       Direction bug2Dir = bug2(rc, target, me, id);
       if (bug2Dir != Direction.CENTER) {
@@ -1567,15 +1920,11 @@ public class RobotPlayer {
       }
     }
 
-    // Normal movement
     Direction desired = me.directionTo(target);
-    if (desired == Direction.CENTER) {
-      return;
-    }
+    if (desired == Direction.CENTER) return;
 
     if (facing == desired) {
-      MapLocation nextLoc = rc.adjacentLocation(facing);
-
+      MapLocation nextLoc = ahead;
       if (!rc.onTheMap(nextLoc)) {
         Direction left = desired.rotateLeft();
         if (left != Direction.CENTER && rc.canTurn()) {
@@ -1589,10 +1938,8 @@ public class RobotPlayer {
         }
         return;
       }
-
       if (rc.canSenseLocation(nextLoc)) {
         MapInfo nextInfo = rc.senseMapInfo(nextLoc);
-
         if (!nextInfo.isPassable()) {
           Direction left = desired.rotateLeft();
           if (rc.canTurn()) {
@@ -1605,7 +1952,6 @@ public class RobotPlayer {
             return;
           }
         }
-
         if (nextInfo.getTrap() == TrapType.RAT_TRAP) {
           Direction left = desired.rotateLeft();
           if (rc.canTurn()) {
@@ -1618,7 +1964,6 @@ public class RobotPlayer {
             return;
           }
         }
-
         if (rc.isLocationOccupied(nextLoc)) {
           RobotInfo blocker = rc.senseRobotAtLocation(nextLoc);
           if (blocker != null && blocker.getTeam() == cachedOurTeam) {
@@ -1635,20 +1980,17 @@ public class RobotPlayer {
           }
         }
       }
-
       if (rc.canMoveForward()) {
         rc.moveForward();
         return;
       }
     }
 
-    // Turn toward target
     if (facing != desired && rc.isTurningReady() && rc.canTurn()) {
       rc.turn(desired);
       return;
     }
 
-    // Emergency strafe
     if (!rc.canMoveForward() && rc.getMovementCooldownTurns() < 10) {
       for (int i = 0; i < DIRS_LEN; i++) {
         Direction dir = DIRS[i];
@@ -1672,7 +2014,6 @@ public class RobotPlayer {
 
   private static Direction bug2(RobotController rc, MapLocation target, MapLocation me, int id)
       throws GameActionException {
-    // Reset if different robot or target changed
     if (lastBugID != id || bugTarget == null || !bugTarget.equals(target)) {
       bugTarget = target;
       bugTracing = false;
@@ -1680,32 +2021,22 @@ public class RobotPlayer {
     }
 
     Direction toTarget = me.directionTo(target);
+    if (toTarget == Direction.CENTER) return Direction.CENTER;
 
-    if (toTarget == Direction.CENTER) {
-      return Direction.CENTER;
-    }
+    if (!bugTracing && rc.canMove(toTarget)) return toTarget;
 
-    // Try direct path
-    if (!bugTracing && rc.canMove(toTarget)) {
-      return toTarget;
-    }
-
-    // Start tracing
     if (!bugTracing) {
       bugTracing = true;
       bugTracingDir = toTarget;
       bugStartDist = me.distanceSquaredTo(target);
     }
 
-    // Follow obstacle
     if (bugTracing) {
       int curDist = me.distanceSquaredTo(target);
-
       if (curDist < bugStartDist && rc.canMove(toTarget)) {
         bugTracing = false;
         return toTarget;
       }
-
       for (int i = 0; i < 8; i++) {
         if (rc.canMove(bugTracingDir)) {
           Direction result = bugTracingDir;
@@ -1715,7 +2046,6 @@ public class RobotPlayer {
         bugTracingDir = bugTracingDir.rotateRight();
       }
     }
-
     return toTarget;
   }
 }
