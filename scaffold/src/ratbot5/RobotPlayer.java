@@ -42,6 +42,11 @@ public class RobotPlayer {
   private static final int SPAWN_COOLDOWN_ROUNDS =
       3; // Only spawn 1 rat every N rounds after initial burst
 
+  // ========== ARMY SIZE CONFIG ==========
+  private static final int MIN_ARMY_SIZE = 6; // Below this triggers emergency spawning
+  private static final int EMERGENCY_SPAWN_RESERVE = 80; // Lower reserve during emergency
+  private static final int HEALTHY_ARMY_SIZE = 12; // Above this, use normal cooldown
+
   // ========== MOVEMENT CONFIG ==========
   private static final int FORCED_MOVEMENT_THRESHOLD = 3;
   private static final int LOW_BYTECODE_THRESHOLD = 800;
@@ -411,13 +416,35 @@ public class RobotPlayer {
       }
     } else {
       // CONTINUOUS SPAWNING: Keep deploying rats as resources allow!
-      // But use cooldown to prevent economy collapse
-      int continuousReserve = smallMap ? SMALL_MAP_CONTINUOUS_RESERVE : CONTINUOUS_SPAWN_RESERVE;
+      // Dynamic spawning based on army health
       int cost = rc.getCurrentRatCost();
 
-      // Apply spawn cooldown on medium/large maps to prevent economy drain
-      // Small maps spawn aggressively, medium/large maps spawn conservatively
-      int spawnCooldown = smallMap ? 1 : SPAWN_COOLDOWN_ROUNDS;
+      // Count our army size to determine spawn urgency
+      int armySize = countArmySize(rc);
+      boolean emergencyMode = armySize < MIN_ARMY_SIZE;
+      boolean healthyArmy = armySize >= HEALTHY_ARMY_SIZE;
+
+      // Dynamic reserve: lower when army is small, higher when healthy
+      int continuousReserve;
+      if (emergencyMode) {
+        continuousReserve = EMERGENCY_SPAWN_RESERVE; // Desperate - spawn with minimal reserve
+      } else if (smallMap) {
+        continuousReserve = SMALL_MAP_CONTINUOUS_RESERVE;
+      } else {
+        continuousReserve = CONTINUOUS_SPAWN_RESERVE;
+      }
+
+      // Dynamic cooldown: no cooldown in emergency, normal otherwise
+      int spawnCooldown;
+      if (emergencyMode) {
+        spawnCooldown = 1; // Emergency - spawn every round
+      } else if (smallMap) {
+        spawnCooldown = 1;
+      } else if (healthyArmy) {
+        spawnCooldown = SPAWN_COOLDOWN_ROUNDS + 1; // Healthy - save cheese
+      } else {
+        spawnCooldown = SPAWN_COOLDOWN_ROUNDS;
+      }
       boolean cooldownReady = (round - lastSpawnRound) >= spawnCooldown;
 
       // Spawn if we have enough cheese above reserve AND cooldown is ready
@@ -431,10 +458,38 @@ public class RobotPlayer {
         if (spawnRat(rc, me)) {
           lastSpawnRound = round;
           if (DEBUG) {
-            String reason = needCollectors ? "REPLACE_COL" : "CONTINUOUS";
-            System.out.println(reason + ":" + round + ":rat#" + spawnCount + " cheese=" + cheese);
+            String reason =
+                emergencyMode ? "EMERGENCY" : (needCollectors ? "REPLACE_COL" : "CONTINUOUS");
+            System.out.println(
+                reason
+                    + ":"
+                    + round
+                    + ":rat#"
+                    + spawnCount
+                    + " cheese="
+                    + cheese
+                    + " army="
+                    + armySize);
           }
         }
+      } else if (DEBUG && (round & 31) == 0) {
+        // Debug why we're not spawning
+        boolean canAfford = cheese > cost + continuousReserve;
+        System.out.println(
+            "NO_SPAWN:"
+                + round
+                + ":cheese="
+                + cheese
+                + " cost="
+                + cost
+                + " reserve="
+                + continuousReserve
+                + " afford="
+                + canAfford
+                + " cooldown="
+                + cooldownReady
+                + " army="
+                + armySize);
       }
     }
 
@@ -663,6 +718,21 @@ public class RobotPlayer {
         // Bitwise AND for modulo 2, integer modulo 3 for small
         boolean isCollector = small ? (rid % 3 == 0) : ((rid & 1) == 1);
         if (isCollector) count++;
+      }
+    }
+    return count;
+  }
+
+  /**
+   * Count total friendly baby rats in king's vision to determine army health. Used for dynamic
+   * spawn rate - spawn more aggressively when army is depleted.
+   */
+  private static int countArmySize(RobotController rc) throws GameActionException {
+    int count = 0;
+    RobotInfo[] team = rc.senseNearbyRobots(rc.getType().getVisionRadiusSquared(), cachedOurTeam);
+    for (int i = team.length - 1; i >= 0; i--) {
+      if (team[i].getType().isBabyRatType()) {
+        count++;
       }
     }
     return count;
