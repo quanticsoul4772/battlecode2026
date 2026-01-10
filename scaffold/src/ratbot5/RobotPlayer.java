@@ -709,9 +709,9 @@ public class RobotPlayer {
   }
 
   /**
-   * Count army size AND collectors in a single senseNearbyRobots call.
-   * Returns int[2]: [0] = total army size, [1] = collector count.
-   * This saves ~100 bytecodes vs calling countArmySize() and countCollectors() separately.
+   * Count army size AND collectors in a single senseNearbyRobots call. Returns int[2]: [0] = total
+   * army size, [1] = collector count. This saves ~100 bytecodes vs calling countArmySize() and
+   * countCollectors() separately.
    */
   private static final int[] armyCountResult = new int[2]; // Reusable to avoid allocation
 
