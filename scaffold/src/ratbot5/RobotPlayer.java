@@ -419,8 +419,10 @@ public class RobotPlayer {
       // Dynamic spawning based on army health
       int cost = rc.getCurrentRatCost();
 
-      // Count our army size to determine spawn urgency
-      int armySize = countArmySize(rc);
+      // Count our army size and collectors in ONE sense call (saves ~100 bytecodes)
+      int[] armyCounts = countArmyAndCollectors(rc);
+      int armySize = armyCounts[0];
+      int collectors = armyCounts[1];
       boolean emergencyMode = armySize < MIN_ARMY_SIZE;
       boolean healthyArmy = armySize >= HEALTHY_ARMY_SIZE;
 
@@ -450,7 +452,6 @@ public class RobotPlayer {
       // Spawn if we have enough cheese above reserve AND cooldown is ready
       if (cheese > cost + continuousReserve && cooldownReady) {
         // Check if we need more collectors (maintain minimum)
-        int collectors = countCollectors(rc);
         boolean needCollectors = collectors < collectorMin;
 
         // Always try to spawn - the role is determined by robot ID at birth
@@ -707,35 +708,31 @@ public class RobotPlayer {
     return false;
   }
 
-  private static int countCollectors(RobotController rc) throws GameActionException {
-    int count = 0;
+  /**
+   * Count army size AND collectors in a single senseNearbyRobots call.
+   * Returns int[2]: [0] = total army size, [1] = collector count.
+   * This saves ~100 bytecodes vs calling countArmySize() and countCollectors() separately.
+   */
+  private static final int[] armyCountResult = new int[2]; // Reusable to avoid allocation
+
+  private static int[] countArmyAndCollectors(RobotController rc) throws GameActionException {
+    int armyCount = 0;
+    int collectorCount = 0;
     boolean small = mapSize == 0;
     RobotInfo[] team = rc.senseNearbyRobots(rc.getType().getVisionRadiusSquared(), cachedOurTeam);
     for (int i = team.length - 1; i >= 0; i--) {
       RobotInfo r = team[i];
       if (r.getType().isBabyRatType()) {
+        armyCount++;
         int rid = r.getID();
         // Bitwise AND for modulo 2, integer modulo 3 for small
         boolean isCollector = small ? (rid % 3 == 0) : ((rid & 1) == 1);
-        if (isCollector) count++;
+        if (isCollector) collectorCount++;
       }
     }
-    return count;
-  }
-
-  /**
-   * Count total friendly baby rats in king's vision to determine army health. Used for dynamic
-   * spawn rate - spawn more aggressively when army is depleted.
-   */
-  private static int countArmySize(RobotController rc) throws GameActionException {
-    int count = 0;
-    RobotInfo[] team = rc.senseNearbyRobots(rc.getType().getVisionRadiusSquared(), cachedOurTeam);
-    for (int i = team.length - 1; i >= 0; i--) {
-      if (team[i].getType().isBabyRatType()) {
-        count++;
-      }
-    }
-    return count;
+    armyCountResult[0] = armyCount;
+    armyCountResult[1] = collectorCount;
+    return armyCountResult;
   }
 
   private static boolean kingFleeMove(RobotController rc, Direction awayDir)
