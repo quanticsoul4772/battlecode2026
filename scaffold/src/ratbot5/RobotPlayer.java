@@ -27,13 +27,16 @@ public class RobotPlayer {
   // ========== COMBAT CONFIG ==========
   private static final int ENHANCED_ATTACK_CHEESE = 16;
   private static final int ENHANCED_THRESHOLD = 300;
+  private static final int SMALL_MAP_ENHANCED_THRESHOLD =
+      100; // Lower threshold for early damage boost
 
   // ========== POPULATION CONFIG ==========
   private static final int INITIAL_SPAWN_COUNT = 10;
   private static final int MAX_SPAWN_COUNT = 15;
   private static final int COLLECTOR_MINIMUM = 3;
-  private static final int SMALL_MAP_INITIAL_SPAWN = 6; // Reduced to save cheese for traps
+  private static final int SMALL_MAP_INITIAL_SPAWN = 10; // Aggressive: max attackers early
   private static final int SMALL_MAP_COLLECTOR_MIN = 2;
+  private static final int SMALL_MAP_ALL_ATTACK_ROUNDS = 25; // All rats attack for first N rounds
 
   // ========== MOVEMENT CONFIG ==========
   private static final int FORCED_MOVEMENT_THRESHOLD = 3;
@@ -60,7 +63,9 @@ public class RobotPlayer {
   private static final int CAT_TRAP_END_ROUND = 40;
 
   // ========== RAT DEFENSE CONFIG ==========
-  private static final int RAT_TRAP_EARLY_TARGET = 10; // Increased for better defense
+  private static final int RAT_TRAP_EARLY_TARGET = 10; // For medium/large maps
+  private static final int SMALL_MAP_RAT_TRAP_TARGET =
+      3; // Minimal traps on small maps - invest in attackers
   private static final int RAT_TRAP_EARLY_WINDOW = 15; // Extend window from 5 to 15 rounds
   private static final int DEFEND_KING_DIST_SQ = 36;
   private static final int BABY_RAT_TRAP_COOLDOWN = 20; // Rounds between baby rat trap placements
@@ -358,9 +363,29 @@ public class RobotPlayer {
     int cheeseReserve = smallMap ? SMALL_MAP_KING_RESERVE : KING_CHEESE_RESERVE;
     int collectorMin = smallMap ? SMALL_MAP_COLLECTOR_MIN : COLLECTOR_MINIMUM;
 
-    // PRIORITY 0: EARLY RAT TRAP PERIMETER (rounds 1-15)
-    if (round <= RAT_TRAP_EARLY_WINDOW && ratTrapCount < RAT_TRAP_EARLY_TARGET) {
-      placeDefensiveTrapsTowardEnemy(rc, me);
+    // Get map-specific trap target
+    int trapTarget = smallMap ? SMALL_MAP_RAT_TRAP_TARGET : RAT_TRAP_EARLY_TARGET;
+
+    // SMALL MAP STRATEGY: Spawn attackers FIRST, then minimal traps
+    // MEDIUM/LARGE MAP: Traps first, then spawn
+    if (smallMap) {
+      // PRIORITY 0A (Small): Spawn attackers ASAP
+      if (spawnCount < initialSpawnTarget) {
+        int cost = rc.getCurrentRatCost();
+        if (cheese > cost + cheeseReserve) {
+          spawnRat(rc, me);
+          if (DEBUG) System.out.println("RUSH_SPAWN:" + round + ":rat#" + spawnCount);
+        }
+      }
+      // PRIORITY 0B (Small): Place minimal traps after spawning started
+      if (round <= RAT_TRAP_EARLY_WINDOW && ratTrapCount < trapTarget && spawnCount >= 3) {
+        placeDefensiveTrapsTowardEnemy(rc, me);
+      }
+    } else {
+      // PRIORITY 0 (Medium/Large): Early rat trap perimeter
+      if (round <= RAT_TRAP_EARLY_WINDOW && ratTrapCount < trapTarget) {
+        placeDefensiveTrapsTowardEnemy(rc, me);
+      }
     }
 
     // PRIORITY 1: Place cat traps early (cooperation only, rounds 5-40)
@@ -372,8 +397,8 @@ public class RobotPlayer {
       placeCatTraps(rc, me);
     }
 
-    // Spawn initial rats
-    if (spawnCount < initialSpawnTarget) {
+    // Spawn initial rats (skip for small maps - already handled above)
+    if (!smallMap && spawnCount < initialSpawnTarget) {
       int cost = rc.getCurrentRatCost();
       if (cheese > cost + cheeseReserve) {
         spawnRat(rc, me);
@@ -545,8 +570,25 @@ public class RobotPlayer {
     }
 
     // Normal king movement
+    // STRATEGY: During trap placement phase, move AWAY from enemy
+    // This positions traps BETWEEN king and incoming attackers
     if ((round & 1) == 0) { // Bitwise AND instead of modulo
       if (enemyCount == 0 && nearbyCat == null) {
+        // During trap placement phase, retreat from enemy to position traps in front
+        if (round <= RAT_TRAP_EARLY_WINDOW && ratTrapCount < trapTarget) {
+          Direction awayFromEnemy;
+          if (cachedEnemyKingLoc != null) {
+            awayFromEnemy = cachedEnemyKingLoc.directionTo(me);
+          } else {
+            awayFromEnemy = cachedMapCenter.directionTo(me);
+          }
+          if (awayFromEnemy != Direction.CENTER && kingFleeMove(rc, awayFromEnemy)) {
+            if (DEBUG) System.out.println("KING_RETREAT:" + round + ":positioning for traps");
+            return;
+          }
+        }
+
+        // Normal exploration movement
         Direction facing = rc.getDirection(); // Cache direction
         MapLocation ahead = rc.adjacentLocation(facing);
 
@@ -787,9 +829,14 @@ public class RobotPlayer {
     }
 
     // Compute role from ID - bitwise AND for modulo 2
+    // SMALL MAP EARLY GAME: ALL rats attack for first SMALL_MAP_ALL_ATTACK_ROUNDS
     int myRole;
     if (mapSize == 0) {
-      myRole = (id % 3 == 0) ? 1 : 0;
+      if (round < SMALL_MAP_ALL_ATTACK_ROUNDS) {
+        myRole = 0; // ALL ATTACK during early rush
+      } else {
+        myRole = (id % 3 == 0) ? 1 : 0;
+      }
     } else {
       myRole = id & 1; // 0=attacker, 1=collector
     }
@@ -855,11 +902,8 @@ public class RobotPlayer {
       }
     }
 
-    // Check for 2nd king formation
-    if (round > 50 && myRole == 1 && rc.canBecomeRatKing()) {
-      rc.becomeRatKing();
-      return;
-    }
+    // DISABLED: Don't create new kings - they tend to starve
+    // The single original king is more effective
 
     if (myRole == 0) {
       runAttacker(rc, nearbyCat, round, id, me, kingNeedsHelp);
@@ -1035,11 +1079,13 @@ public class RobotPlayer {
     }
 
     boolean coop = rc.isCooperation();
+    // Use lower threshold for small maps to get damage boost earlier
+    int enhancedThreshold = (mapSize == 0) ? SMALL_MAP_ENHANCED_THRESHOLD : ENHANCED_THRESHOLD;
 
     if (bestTarget != null) {
       MapLocation targetLoc = bestTarget.getLocation();
       if (rc.canAttack(targetLoc)) {
-        if (!coop && rc.getGlobalCheese() > ENHANCED_THRESHOLD) {
+        if (!coop && rc.getGlobalCheese() > enhancedThreshold) {
           rc.attack(targetLoc, ENHANCED_ATTACK_CHEESE);
         } else {
           rc.attack(targetLoc);
