@@ -27,16 +27,20 @@ public class RobotPlayer {
   // ========== COMBAT CONFIG ==========
   private static final int ENHANCED_ATTACK_CHEESE = 16;
   private static final int ENHANCED_THRESHOLD = 300;
-  private static final int SMALL_MAP_ENHANCED_THRESHOLD =
-      100; // Lower threshold for early damage boost
+  private static final int SMALL_MAP_ENHANCED_THRESHOLD = 100;
 
   // ========== POPULATION CONFIG ==========
   private static final int INITIAL_SPAWN_COUNT = 10;
-  private static final int MAX_SPAWN_COUNT = 15;
+  private static final int CONTINUOUS_SPAWN_RESERVE =
+      400; // Higher reserve to prevent economy collapse
   private static final int COLLECTOR_MINIMUM = 3;
   private static final int SMALL_MAP_INITIAL_SPAWN = 10; // Aggressive: max attackers early
   private static final int SMALL_MAP_COLLECTOR_MIN = 2;
   private static final int SMALL_MAP_ALL_ATTACK_ROUNDS = 25; // All rats attack for first N rounds
+  private static final int SMALL_MAP_CONTINUOUS_RESERVE =
+      100; // Lower reserve for aggressive small maps
+  private static final int SPAWN_COOLDOWN_ROUNDS =
+      3; // Only spawn 1 rat every N rounds after initial burst
 
   // ========== MOVEMENT CONFIG ==========
   private static final int FORCED_MOVEMENT_THRESHOLD = 3;
@@ -330,6 +334,7 @@ public class RobotPlayer {
   private static int catTrapCount = 0;
   private static int ratTrapCount = 0;
   private static int lastKingX = -1, lastKingY = -1;
+  private static int lastSpawnRound = 0; // Track last spawn for cooldown
 
   private static void runKing(RobotController rc) throws GameActionException {
     int round = rc.getRoundNum();
@@ -404,13 +409,31 @@ public class RobotPlayer {
         spawnRat(rc, me);
         if (DEBUG) System.out.println("SPAWN:" + round + ":rat#" + spawnCount);
       }
-    } else if (spawnCount < MAX_SPAWN_COUNT) {
-      int collectors = countCollectors(rc);
-      if (collectors < collectorMin) {
-        int cost = rc.getCurrentRatCost();
-        if (cheese > cost + cheeseReserve) {
-          spawnRat(rc, me);
-          if (DEBUG) System.out.println("REPLACE:" + round + ":rat#" + spawnCount);
+    } else {
+      // CONTINUOUS SPAWNING: Keep deploying rats as resources allow!
+      // But use cooldown to prevent economy collapse
+      int continuousReserve = smallMap ? SMALL_MAP_CONTINUOUS_RESERVE : CONTINUOUS_SPAWN_RESERVE;
+      int cost = rc.getCurrentRatCost();
+
+      // Apply spawn cooldown on medium/large maps to prevent economy drain
+      // Small maps spawn aggressively, medium/large maps spawn conservatively
+      int spawnCooldown = smallMap ? 1 : SPAWN_COOLDOWN_ROUNDS;
+      boolean cooldownReady = (round - lastSpawnRound) >= spawnCooldown;
+
+      // Spawn if we have enough cheese above reserve AND cooldown is ready
+      if (cheese > cost + continuousReserve && cooldownReady) {
+        // Check if we need more collectors (maintain minimum)
+        int collectors = countCollectors(rc);
+        boolean needCollectors = collectors < collectorMin;
+
+        // Always try to spawn - the role is determined by robot ID at birth
+        // We just need to keep spawning to maintain army strength
+        if (spawnRat(rc, me)) {
+          lastSpawnRound = round;
+          if (DEBUG) {
+            String reason = needCollectors ? "REPLACE_COL" : "CONTINUOUS";
+            System.out.println(reason + ":" + round + ":rat#" + spawnCount + " cheese=" + cheese);
+          }
         }
       }
     }
@@ -609,7 +632,8 @@ public class RobotPlayer {
     if (PROFILE) profEndTurn(round, rc.getID(), true);
   }
 
-  private static void spawnRat(RobotController rc, MapLocation kingLoc) throws GameActionException {
+  private static boolean spawnRat(RobotController rc, MapLocation kingLoc)
+      throws GameActionException {
     for (int i = 0; i < DIRS_LEN; i++) {
       Direction dir = DIRS[i];
       if (dir == Direction.CENTER) continue;
@@ -621,10 +645,11 @@ public class RobotPlayer {
         if (rc.canBuildRat(loc)) {
           rc.buildRat(loc);
           spawnCount++;
-          return;
+          return true;
         }
       }
     }
+    return false;
   }
 
   private static int countCollectors(RobotController rc) throws GameActionException {
