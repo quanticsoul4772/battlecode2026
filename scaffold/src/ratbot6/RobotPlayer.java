@@ -32,6 +32,11 @@ import java.util.Random;
 public class RobotPlayer {
 
   // ========================================================================
+  // DEBUG CONFIG
+  // ========================================================================
+  private static final boolean PROFILE = false;
+
+  // ========================================================================
   // SHARED ARRAY SLOT CONSTANTS
   // ========================================================================
   private static final int SLOT_OUR_KING_X = 0;
@@ -44,6 +49,8 @@ public class RobotPlayer {
   private static final int SLOT_FOCUS_HP = 7;
   // SLOT 8 reserved for future use
   private static final int SLOT_ENEMY_KING_ROUND = 9; // Round when enemy king was last seen
+  private static final int SLOT_ESTIMATE_CHECKED =
+      10; // Round when estimated position was checked (0 = not checked)
 
   // ========================================================================
   // SQUEAK CONSTANTS
@@ -151,11 +158,19 @@ public class RobotPlayer {
   private static int myLocX;
   private static int myLocY;
 
+  // ========== RC METHOD CACHING (Bytecode Optimization) ==========
+  private static int cachedMyID;
+  private static Direction cachedMyDirection;
+
   // Cached king coordinates
   private static int cachedOurKingX;
   private static int cachedOurKingY;
   private static int cachedEnemyKingX;
   private static int cachedEnemyKingY;
+
+  // ========== SHARED ARRAY CACHING (Bytecode Optimization) ==========
+  private static int[] sharedArrayCache = new int[16];
+  private static boolean sharedArrayCacheValid = false;
 
   // Target scoring results (static to avoid allocation)
   private static MapLocation cachedBestTarget;
@@ -179,6 +194,15 @@ public class RobotPlayer {
   private static int mapSymmetry = -1;
   private static MapLocation estimatedEnemyKingLoc;
 
+  // Track if enemy king has been CONFIRMED (actually seen) vs just estimated
+  private static boolean enemyKingConfirmed = false;
+
+  // Track if estimated position has been CHECKED (rat went there and didn't find king)
+  private static int estimateCheckedRound = 0;
+
+  // Note: Exploration targets are computed per-rat based on ID, not cached
+  // (static fields are shared across all rats in the same JVM)
+
   // RNG for random movement
   private static Random rng;
 
@@ -199,6 +223,10 @@ public class RobotPlayer {
   // Squeak state
   private static int lastSqueakRound = -100;
   private static int lastSqueakID = -1;
+
+  // Timeout for verifying enemy king estimate (king-side, not relay-based)
+  // Lower = more exploration time on non-standard maps
+  private static final int BASE_VERIFICATION_TIMEOUT = 30;
 
   // Cat trap count
   private static int catTrapCount = 0;
@@ -288,18 +316,21 @@ public class RobotPlayer {
    * Update all cached game state variables. Called at the start of each turn to minimize API calls.
    */
   private static void updateGameState(RobotController rc) throws GameActionException {
-    cachedRound = rc.getRoundNum();
-    myLoc = rc.getLocation();
-    myLocX = myLoc.x;
-    myLocY = myLoc.y;
+    // NOTE: cachedRound, myLoc already cached at start of runBabyRat()/runKing()
 
     // Cheese state
     cachedCarryingCheese = rc.getRawCheese() > 0;
     cachedOurCheese = rc.getGlobalCheese();
 
-    // Read our king position from shared array
-    cachedOurKingX = rc.readSharedArray(SLOT_OUR_KING_X);
-    cachedOurKingY = rc.readSharedArray(SLOT_OUR_KING_Y);
+    // ========== SHARED ARRAY CACHE (Bytecode Optimization) ==========
+    // Batch read first 10 slots once (saves ~15 bytecode × 8-10 reads = 120-150 bytecode)
+    for (int i = 10; --i >= 0; ) {
+      sharedArrayCache[i] = rc.readSharedArray(i);
+    }
+
+    // Read our king position from cached array
+    cachedOurKingX = sharedArrayCache[SLOT_OUR_KING_X];
+    cachedOurKingY = sharedArrayCache[SLOT_OUR_KING_Y];
     if (cachedOurKingX > 0 || cachedOurKingY > 0) {
       // Only allocate if position changed
       if (cachedOurKingLoc == null
@@ -312,27 +343,46 @@ public class RobotPlayer {
       cachedDistToOurKing = dx * dx + dy * dy;
     }
 
-    // Read enemy king position from shared array
-    cachedEnemyKingX = rc.readSharedArray(SLOT_ENEMY_KING_X);
-    cachedEnemyKingY = rc.readSharedArray(SLOT_ENEMY_KING_Y);
-    if (cachedEnemyKingX > 0 || cachedEnemyKingY > 0) {
-      // Only allocate if position changed
-      if (cachedEnemyKingLoc == null
-          || cachedEnemyKingLoc.x != cachedEnemyKingX
-          || cachedEnemyKingLoc.y != cachedEnemyKingY) {
-        cachedEnemyKingLoc = new MapLocation(cachedEnemyKingX, cachedEnemyKingY);
+    // Read enemy king position from cached array
+    cachedEnemyKingX = sharedArrayCache[SLOT_ENEMY_KING_X];
+    cachedEnemyKingY = sharedArrayCache[SLOT_ENEMY_KING_Y];
+    int enemyKingSeenRound = sharedArrayCache[SLOT_ENEMY_KING_ROUND];
+
+    // Check if enemy king has been CONFIRMED (actually seen by someone)
+    if (enemyKingSeenRound > 0) {
+      enemyKingConfirmed = true;
+      if (cachedEnemyKingX > 0 || cachedEnemyKingY > 0) {
+        // Only allocate if position changed
+        if (cachedEnemyKingLoc == null
+            || cachedEnemyKingLoc.x != cachedEnemyKingX
+            || cachedEnemyKingLoc.y != cachedEnemyKingY) {
+          cachedEnemyKingLoc = new MapLocation(cachedEnemyKingX, cachedEnemyKingY);
+        }
       }
     } else {
-      // Fallback to symmetry-based estimate
-      cachedEnemyKingLoc = getEnemyKingEstimate(rc);
+      // Enemy king NOT confirmed yet
+      enemyKingConfirmed = false;
+      // Cache the estimate for targeting
+      if (cachedEnemyKingX > 0 || cachedEnemyKingY > 0) {
+        if (cachedEnemyKingLoc == null
+            || cachedEnemyKingLoc.x != cachedEnemyKingX
+            || cachedEnemyKingLoc.y != cachedEnemyKingY) {
+          cachedEnemyKingLoc = new MapLocation(cachedEnemyKingX, cachedEnemyKingY);
+        }
+      } else {
+        cachedEnemyKingLoc = getEnemyKingEstimate(rc);
+      }
     }
 
-    // Read enemy king HP
-    cachedEnemyKingHP = rc.readSharedArray(SLOT_ENEMY_KING_HP);
+    // Read estimate checked round (0 = not checked, >0 = checked and wrong)
+    estimateCheckedRound = rc.readSharedArray(SLOT_ESTIMATE_CHECKED);
+
+    // Read enemy king HP from cached array
+    cachedEnemyKingHP = sharedArrayCache[SLOT_ENEMY_KING_HP];
     if (cachedEnemyKingHP == 0) cachedEnemyKingHP = 500; // Default to full HP
 
-    // Economy mode
-    cachedEconomyMode = rc.readSharedArray(SLOT_ECONOMY_MODE);
+    // Economy mode from cached array
+    cachedEconomyMode = sharedArrayCache[SLOT_ECONOMY_MODE];
   }
 
   /** Estimate enemy king position based on map symmetry. */
@@ -357,6 +407,64 @@ public class RobotPlayer {
     }
 
     return estimatedEnemyKingLoc;
+  }
+
+  /**
+   * Get exploration target when enemy king hasn't been found yet. Different rats explore different
+   * areas based on their ID to spread out and find the king faster.
+   */
+  private static MapLocation getExplorationTarget(RobotController rc) throws GameActionException {
+    int id = rc.getID();
+    int group = id % 4;
+
+    // Note: Don't cache exploration target - static fields are shared across all rats
+    // Each rat needs to compute its own target based on its ID
+
+    int mapWidth = rc.getMapWidth();
+    int mapHeight = rc.getMapHeight();
+
+    int targetX, targetY;
+
+    if (group == 0) {
+      // Explore opposite corner (original estimate)
+      if (cachedOurKingLoc != null) {
+        targetX = mapWidth - cachedOurKingLoc.x - 1;
+        targetY = mapHeight - cachedOurKingLoc.y - 1;
+      } else {
+        targetX = mapWidth - 1;
+        targetY = mapHeight - 1;
+      }
+    } else if (group == 1) {
+      // Explore horizontal reflection
+      if (cachedOurKingLoc != null) {
+        targetX = mapWidth - cachedOurKingLoc.x - 1;
+        targetY = cachedOurKingLoc.y;
+      } else {
+        targetX = mapWidth - 1;
+        targetY = mapHeight / 2;
+      }
+    } else if (group == 2) {
+      // Explore vertical reflection
+      if (cachedOurKingLoc != null) {
+        targetX = cachedOurKingLoc.x;
+        targetY = mapHeight - cachedOurKingLoc.y - 1;
+      } else {
+        targetX = mapWidth / 2;
+        targetY = mapHeight - 1;
+      }
+    } else {
+      // Explore center of map
+      targetX = mapWidth / 2;
+      targetY = mapHeight / 2;
+    }
+
+    // Clamp to valid map coordinates
+    if (targetX < 0) targetX = 0;
+    if (targetX >= mapWidth) targetX = mapWidth - 1;
+    if (targetY < 0) targetY = 0;
+    if (targetY >= mapHeight) targetY = mapHeight - 1;
+
+    return new MapLocation(targetX, targetY);
   }
 
   // ========================================================================
@@ -443,22 +551,39 @@ public class RobotPlayer {
     // ALL-IN MODE: If enemy king is wounded, prioritize killing it!
     boolean allInMode = cachedEnemyKingHP > 0 && cachedEnemyKingHP < WOUNDED_KING_HP;
 
-    // Score enemy king
+    // TRUST BUT VERIFY: Score enemy king based on confirmation state
+    // - If confirmed: Go to confirmed position (attack!)
+    // - If not confirmed AND not checked: Go to estimated position (trust)
+    // - If not confirmed AND checked (wrong): Explore different quadrants (verify failed)
     if (enemyKingTarget != null) {
-      int dx = meX - enemyKingTarget.x;
-      int dy = meY - enemyKingTarget.y;
-      int distSq = dx * dx + dy * dy;
-      int score = scoreTarget(TARGET_ENEMY_KING, distSq);
-
-      if (allInMode) {
-        score += 500;
+      if (enemyKingConfirmed) {
+        // CONFIRMED: Go attack the king!
+        int dx = meX - enemyKingTarget.x;
+        int dy = meY - enemyKingTarget.y;
+        int distSq = dx * dx + dy * dy;
+        int score = scoreTarget(TARGET_ENEMY_KING, distSq);
+        if (allInMode) score += 500;
+        score += 100; // Confirmed bonus
+        if (score > cachedBestScore) {
+          cachedBestScore = score;
+          cachedBestTarget = enemyKingTarget;
+          cachedBestTargetType = TARGET_ENEMY_KING;
+        }
+      } else if (estimateCheckedRound == 0) {
+        // NOT CHECKED YET: Trust the estimate, go to estimated position
+        int dx = meX - enemyKingTarget.x;
+        int dy = meY - enemyKingTarget.y;
+        int distSq = dx * dx + dy * dy;
+        int score = scoreTarget(TARGET_ENEMY_KING, distSq);
+        // Lower priority than confirmed, but still go there
+        if (score > cachedBestScore) {
+          cachedBestScore = score;
+          cachedBestTarget = enemyKingTarget;
+          cachedBestTargetType = TARGET_ENEMY_KING;
+        }
       }
-
-      if (score > cachedBestScore) {
-        cachedBestScore = score;
-        cachedBestTarget = enemyKingTarget;
-        cachedBestTargetType = TARGET_ENEMY_KING;
-      }
+      // If estimateCheckedRound > 0 AND !enemyKingConfirmed, don't score estimated position
+      // Rats will fall through to exploration logic below
     }
 
     // Score visible enemy rats
@@ -522,11 +647,48 @@ public class RobotPlayer {
       }
     }
 
-    // Fallback: move toward estimated enemy king
+    // EXPLORATION MODE: Only activate when estimate was checked and found wrong
+    // This means a rat went to the estimated position and didn't find the king
+    if (!enemyKingConfirmed && estimateCheckedRound > 0) {
+      // Estimate was wrong - explore to find the king
+      // BUT still collect adjacent cheese (distance ≤ 2) - grab it without detouring
+      boolean adjacentCheeseFound = false;
+      if (cachedBestTargetType == TARGET_CHEESE && cachedBestTarget != null) {
+        int dx = meX - cachedBestTarget.x;
+        int dy = meY - cachedBestTarget.y;
+        int distSq = dx * dx + dy * dy;
+        if (distSq <= 2) { // Adjacent - grab it on the way
+          adjacentCheeseFound = true;
+        }
+      }
+      // If carrying cheese, deliver it first (but to exploration target direction)
+      // Otherwise, explore to find the king
+      if (!adjacentCheeseFound && !cachedCarryingCheese) {
+        // No adjacent cheese and not carrying - explore to find the king
+        cachedBestTarget = getExplorationTarget(rc);
+        cachedBestTargetType = TARGET_ENEMY_KING;
+      }
+      // If carrying cheese, the delivery target is already set - that's fine
+    }
+
+    // Fallback: if no target found, explore or deliver
     if (cachedBestTarget == null) {
-      cachedBestTarget = getEnemyKingEstimate(rc);
-      cachedBestTargetType = TARGET_ENEMY_KING;
-      cachedBestScore = 1;
+      if (cachedCarryingCheese && cachedOurKingLoc != null) {
+        // Carrying cheese - go to our king
+        cachedBestTarget = cachedOurKingLoc;
+        cachedBestTargetType = TARGET_DELIVERY;
+        cachedBestScore = 1;
+      } else if (enemyKingConfirmed && cachedEnemyKingLoc != null) {
+        // Enemy king has been seen - go there
+        cachedBestTarget = cachedEnemyKingLoc;
+        cachedBestTargetType = TARGET_ENEMY_KING;
+        cachedBestScore = 1;
+      } else {
+        // Enemy king NOT confirmed - explore to find it!
+        cachedBestTarget = getExplorationTarget(rc);
+        cachedBestTargetType = TARGET_ENEMY_KING;
+        cachedBestScore = 1;
+      }
     }
   }
 
@@ -895,19 +1057,17 @@ public class RobotPlayer {
     Direction currentFacing = rc.getDirection();
     MapLocation me = rc.getLocation();
 
-    // Priority 1: Turn toward enemy king
-    MapLocation target = cachedEnemyKingLoc;
-    if (target == null) {
-      target = getEnemyKingEstimate(rc);
-    }
-
-    if (target != null && !target.equals(me)) {
-      Direction toTarget = me.directionTo(target);
-      if (toTarget != Direction.CENTER) {
-        int angleDiff = getAngleDifference(currentFacing, toTarget);
-        if (angleDiff > 45 && rc.canTurn(toTarget)) {
-          rc.turn(toTarget);
-          return;
+    // Priority 1: Turn toward enemy king (only if confirmed)
+    if (enemyKingConfirmed) {
+      MapLocation target = cachedEnemyKingLoc;
+      if (target != null && !target.equals(me)) {
+        Direction toTarget = me.directionTo(target);
+        if (toTarget != Direction.CENTER) {
+          int angleDiff = getAngleDifference(currentFacing, toTarget);
+          if (angleDiff > 45 && rc.canTurn(toTarget)) {
+            rc.turn(toTarget);
+            return;
+          }
         }
       }
     }
@@ -919,6 +1079,40 @@ public class RobotPlayer {
         int angleDiff = getAngleDifference(currentFacing, toKing);
         if (angleDiff > 45 && rc.canTurn(toKing)) {
           rc.turn(toKing);
+          return;
+        }
+      }
+    }
+  }
+
+  /**
+   * Search scan - turn aggressively to find the enemy king when location is unknown. Rats turn to
+   * scan different directions based on their ID and round number.
+   */
+  private static void trySearchScan(RobotController rc) throws GameActionException {
+    if (!rc.isMovementReady()) return;
+
+    Direction currentFacing = rc.getDirection();
+    int round = cachedRound;
+    int id = rc.getID();
+
+    // Scan more frequently - every 3 rounds
+    if ((round + id) % 3 == 0) {
+      // Scan by turning 90 degrees
+      Direction scanDir = currentFacing.rotateRight().rotateRight();
+      if (rc.canTurn(scanDir)) {
+        rc.turn(scanDir);
+        return;
+      }
+    }
+
+    // Otherwise, turn toward the cached best target (already computed in scoreAllTargets)
+    if (cachedBestTarget != null && !cachedBestTarget.equals(myLoc)) {
+      Direction toTarget = myLoc.directionTo(cachedBestTarget);
+      if (toTarget != Direction.CENTER && toTarget != currentFacing) {
+        int angleDiff = getAngleDifference(currentFacing, toTarget);
+        if (angleDiff > 45 && rc.canTurn(toTarget)) {
+          rc.turn(toTarget);
           return;
         }
       }
@@ -1161,9 +1355,19 @@ public class RobotPlayer {
 
   /** King main loop. */
   private static void runKing(RobotController rc) throws GameActionException {
-    MapLocation me = rc.getLocation();
+    // ========== CACHE RC METHODS (Bytecode Optimization) ==========
+    int bcStart = PROFILE ? Clock.getBytecodesLeft() : 0;
+    myLoc = rc.getLocation();
+    cachedRound = rc.getRoundNum();
+    cachedMyID = rc.getID();
+    cachedMyDirection = rc.getDirection();
+    myLocX = myLoc.x;
+    myLocY = myLoc.y;
+
+    // Use cached values
+    MapLocation me = myLoc;
     int hp = rc.getHealth();
-    int round = rc.getRoundNum();
+    int round = cachedRound;
 
     // Check for cats FIRST - highest priority escape!
     RobotInfo[] neutrals = rc.senseNearbyRobots(-1, Team.NEUTRAL);
@@ -1213,8 +1417,8 @@ public class RobotPlayer {
     // 2. Update game state
     updateGameState(rc);
 
-    // 3. Check for enemies
-    RobotInfo[] enemies = rc.senseNearbyRobots(-1, cachedEnemyTeam);
+    // 3. Check for enemies - OPTIMIZATION: Reuse nearbyEnemies from earlier
+    RobotInfo[] enemies = nearbyEnemies; // Already sensed at line 1357
     boolean enemiesNearby = enemies.length > 0;
 
     if (enemies.length > 0) {
@@ -1282,11 +1486,32 @@ public class RobotPlayer {
     // 7. Read squeaks from baby rats - get fresh enemy king intel!
     kingReadSqueaks(rc);
 
-    // 8. Broadcast enemy king if visible
+    // 8. King-side timeout: If no enemy king confirmed after timeout, mark estimate as wrong
+    // This is more reliable than squeak relay since squeaks have limited range
+    if (!enemyKingConfirmed && estimateCheckedRound == 0) {
+      int mapWidth = rc.getMapWidth();
+      int mapHeight = rc.getMapHeight();
+      int mapDiagonal = (int) Math.sqrt(mapWidth * mapWidth + mapHeight * mapHeight);
+      int timeout = BASE_VERIFICATION_TIMEOUT + (mapDiagonal / 2);
+
+      if (round > timeout) {
+        // No confirmation received - estimate is probably wrong
+        rc.writeSharedArray(SLOT_ESTIMATE_CHECKED, round);
+        estimateCheckedRound = round;
+      }
+    }
+
+    // 9. Broadcast enemy king if visible
     broadcastEnemyKing(rc, enemies);
 
-    // 9. Update economy mode
+    // 10. Update economy mode
     updateEconomyMode(rc);
+
+    // ========== BYTECODE PROFILING (End of turn) ==========
+    if (PROFILE && round % 10 == 0) {
+      int bcUsed = bcStart - Clock.getBytecodesLeft();
+      System.out.println("[ratbot6 KING] Round:" + round + " Bytecode:" + bcUsed);
+    }
   }
 
   /** Broadcast king position to shared array. */
@@ -1351,8 +1576,8 @@ public class RobotPlayer {
       toEnemy.opposite()
     };
 
-    // Try to spawn at distance 2
-    for (int i = 0; i < 8; i++) {
+    // Try to spawn at distance 2 (backward loop for bytecode efficiency)
+    for (int i = 8; --i >= 0; ) {
       Direction dir = spawnPriority[i];
       MapLocation spawnLoc = kingLoc.add(dir).add(dir);
       if (rc.canBuildRat(spawnLoc)) {
@@ -1361,9 +1586,9 @@ public class RobotPlayer {
       }
     }
 
-    // Try distance 3 and 4
+    // Try distance 3 and 4 (backward loops for bytecode efficiency)
     for (int dist = 3; dist <= 4; dist++) {
-      for (int i = 0; i < 8; i++) {
+      for (int i = 8; --i >= 0; ) {
         Direction dir = spawnPriority[i];
         MapLocation spawnLoc = kingLoc.translate(dir.dx * dist, dir.dy * dist);
         if (rc.canBuildRat(spawnLoc)) {
@@ -1640,7 +1865,10 @@ public class RobotPlayer {
   private static final MapLocation[] cheeseBuffer = new MapLocation[50];
   private static int cheeseCount = 0;
 
-  /** Find nearby cheese locations by scanning MapInfo. */
+  /**
+   * Find nearby cheese locations by scanning MapInfo. OPTIMIZATION: Already uses backward loop.
+   * MapInfo sensing is necessary since no senseNearbyCheese() API exists.
+   */
   private static void findNearbyCheese(RobotController rc) throws GameActionException {
     MapInfo[] nearbyTiles = rc.senseNearbyMapInfos(myLoc, 20);
     cheeseCount = 0;
@@ -1665,12 +1893,22 @@ public class RobotPlayer {
       return;
     }
 
-    // 1. Update game state
-    updateGameState(rc);
+    // ========== CACHE RC METHODS (Bytecode Optimization) ==========
+    int bcStart = PROFILE ? Clock.getBytecodesLeft() : 0;
+    myLoc = rc.getLocation();
+    cachedRound = rc.getRoundNum();
+    cachedMyID = rc.getID();
+    cachedMyDirection = rc.getDirection();
+    myLocX = myLoc.x;
+    myLocY = myLoc.y;
 
+    // Use cached values
     MapLocation me = myLoc;
     int round = cachedRound;
-    int id = rc.getID();
+    int id = cachedMyID;
+
+    // 1. Update game state
+    updateGameState(rc);
 
     // 2. Sense enemies and cheese
     RobotInfo[] enemies = rc.senseNearbyRobots(-1, cachedEnemyTeam);
@@ -1689,15 +1927,9 @@ public class RobotPlayer {
       Direction facing = rc.getDirection();
       Direction toKing = me.directionTo(cachedEnemyKingLoc);
 
-      if (distToEnemyKing <= 2 && toKing == facing) {
-        // We're AT the cached location, facing it, but see nothing - king moved! Scan around.
-        Direction scanDir = facing.rotateRight().rotateRight(); // Try 90° right
-        if (rc.canTurn(scanDir)) {
-          rc.turn(scanDir);
-          enemies = rc.senseNearbyRobots(-1, cachedEnemyTeam);
-        }
-      } else if (distToEnemyKing <= 8 && toKing != Direction.CENTER && toKing != facing) {
-        // Within ~3 tiles - turn to face the king location
+      // Turn to face enemy king location when close
+      if (distToEnemyKing <= 8 && toKing != Direction.CENTER && toKing != facing) {
+        // Close to king location - turn to face it
         if (rc.canTurn(toKing)) {
           rc.turn(toKing);
           enemies = rc.senseNearbyRobots(-1, cachedEnemyTeam);
@@ -1712,8 +1944,14 @@ public class RobotPlayer {
     }
 
     // 5. Vision management - turn toward target if nothing visible
+    //    In SEARCH mode (enemy king not confirmed), turn more aggressively to scan
     if (enemies.length == 0 && cheeseCount == 0) {
-      tryTurnTowardTarget(rc);
+      if (!enemyKingConfirmed) {
+        // In search mode - scan more aggressively
+        trySearchScan(rc);
+      } else {
+        tryTurnTowardTarget(rc);
+      }
     }
 
     // 6. Focus fire target
@@ -1743,6 +1981,13 @@ public class RobotPlayer {
     updateEnemyKingFromBabyRat(rc, enemies);
 
     // PERF: Removed mine squeaking - not worth bytecode
+
+    // ========== BYTECODE PROFILING ==========
+    if (PROFILE && cachedRound % 10 == 0) {
+      int bcUsed = bcStart - Clock.getBytecodesLeft();
+      System.out.println(
+          "[ratbot6 BABY] Round:" + cachedRound + " ID:" + cachedMyID + " Bytecode:" + bcUsed);
+    }
   }
 
   /** Baby rat updates cached enemy king position if visible and squeaks to share intel. */
@@ -1793,6 +2038,7 @@ public class RobotPlayer {
       int type = (content >> 28) & 0xF;
 
       if (type == SQUEAK_TYPE_ENEMY_KING) {
+        // Baby rat found the enemy king! Update position.
         int y = (content >> 16) & 0xFFF;
         int x = (content >> 4) & 0xFFF;
         int hpBits = content & 0xF;
@@ -1808,6 +2054,7 @@ public class RobotPlayer {
           cachedEnemyKingLoc = new MapLocation(x, y);
         }
         cachedEnemyKingHP = hp;
+        enemyKingConfirmed = true;
         return;
       }
     }
