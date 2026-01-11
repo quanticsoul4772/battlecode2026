@@ -36,7 +36,10 @@ public class RobotPlayer {
   private static final int KITE_STATE_APPROACH = 0;
   private static final int KITE_STATE_ATTACK = 1;
   private static final int KITE_STATE_RETREAT = 2;
-  private static final int KITE_RETREAT_DIST = 2; // Retreat 2 tiles after attacking
+  // DYNAMIC KITE DISTANCE: Now calculated based on HP in getKiteRetreatDist()
+  private static final int KITE_RETREAT_DIST_HEALTHY = 1; // HP >= 60
+  private static final int KITE_RETREAT_DIST_WOUNDED = 2; // HP 40-59
+  private static final int KITE_RETREAT_DIST_CRITICAL = 3; // HP < 40
   private static final int KITE_ENGAGE_DIST_SQ = 8; // Start kiting when this close
 
   // ========== OVERKILL PREVENTION ==========
@@ -46,6 +49,9 @@ public class RobotPlayer {
   // ========== RETREAT COORDINATION ==========
   private static final int RETREAT_HP_RATIO_THRESHOLD = 40; // Retreat if our HP < 40% of enemy
   private static final int RETREAT_SIGNAL_STALE = 5; // Retreat signal expires after 5 rounds
+  private static final int WOUNDED_HP_THRESHOLD = 40; // HP below which rats should retreat
+  private static final int WOUNDED_RETREAT_EXCEPTION_DIST_SQ =
+      16; // Don't retreat if this close to enemy king
 
   // ========== ADAPTIVE STRATEGY ==========
   private static final int RUSH_DETECTION_ROUND = 30;
@@ -80,10 +86,24 @@ public class RobotPlayer {
   // ========== POPULATION CONFIG ==========
   private static final int INITIAL_SPAWN_COUNT = 10;
   private static final int CONTINUOUS_SPAWN_RESERVE = 400;
-  private static final int MEDIUM_MAP_CONTINUOUS_RESERVE = 200; // Balanced buffer for medium maps
-  private static final int MEDIUM_MAP_SPAWN_COOLDOWN = 2; // Spawn every 2 rounds on medium maps
-  private static final int MEDIUM_MAP_ALL_ATTACK_ROUNDS = 15; // Short attack burst, then balance
-  private static final int MEDIUM_MAP_EARLY_ATTACKER_RATIO = 6; // 60% attackers on medium maps
+  // STAGGERED WAVE SPAWNING: Spawn rats in waves to prevent bunching
+  // On small/medium maps, spawn faster since games are decided quickly
+  private static final int WAVE_SIZE = 3; // Rats per wave (large maps)
+  private static final int WAVE_COOLDOWN_ROUNDS = 5; // Rounds between waves (large maps)
+  private static final int SMALL_MAP_WAVE_SIZE = 5; // Larger waves on small maps
+  private static final int SMALL_MAP_WAVE_COOLDOWN = 2; // Faster spawning on small maps
+  private static final int MEDIUM_MAP_WAVE_SIZE = 4; // Medium waves on medium maps
+  private static final int MEDIUM_MAP_WAVE_COOLDOWN = 3; // Moderate spawning speed on medium maps
+  // LESSON LEARNED: Don't try to be "balanced" - commit to a strategy!
+  // Medium maps should be AGGRESSIVE like small maps, not a middle-ground.
+  // The "balanced" approach creates a "worst of both worlds" where Team B loses.
+  private static final int MEDIUM_MAP_CONTINUOUS_RESERVE =
+      150; // Aggressive but above emergency threshold
+  private static final int MEDIUM_MAP_SPAWN_COOLDOWN = 1; // Spawn every round (was 2)
+  private static final int MEDIUM_MAP_ALL_ATTACK_ROUNDS =
+      50; // Extended from 30 to give Team A time to reach enemy king
+  private static final int MEDIUM_MAP_EARLY_ATTACKER_RATIO =
+      8; // 80% attackers like small maps (was 6)
   private static final int COLLECTOR_MINIMUM = 3;
   private static final int SMALL_MAP_INITIAL_SPAWN = 10;
   private static final int SMALL_MAP_COLLECTOR_MIN = 2;
@@ -109,7 +129,6 @@ public class RobotPlayer {
   private static final int HEALTHY_ARMY_SIZE = 12;
 
   // ========== MOVEMENT CONFIG ==========
-  private static final int FORCED_MOVEMENT_THRESHOLD = 3;
   private static final int LOW_BYTECODE_THRESHOLD = 800;
 
   // ========== ECONOMY CONFIG ==========
@@ -123,12 +142,15 @@ public class RobotPlayer {
 
   // ========== THROTTLE CONFIG ==========
   private static final int SQUEAK_THROTTLE_ROUNDS = 15;
+  private static final int COLLECTOR_RELAY_THROTTLE_ROUNDS =
+      5; // Collectors relay faster than attackers
   private static final int SENSE_THROTTLE_ROUNDS = 3;
   private static final int MAX_SQUEAKS_TO_READ = 12;
 
   // ========== CAT DEFENSE CONFIG ==========
   private static final int CAT_FLEE_DIST_SQ = 16;
-  private static final int CAT_KING_FLEE_DIST_SQ = 49;
+  private static final int CAT_KING_FLEE_DIST_SQ =
+      100; // Increased from 49 for earlier detection (10 tiles)
   private static final int CAT_KITE_MIN_DIST_SQ = 10;
   private static final int CAT_KITE_MAX_DIST_SQ = 25;
   private static final int CAT_TRAP_TARGET = 10;
@@ -136,6 +158,10 @@ public class RobotPlayer {
 
   // ========== RAT DEFENSE CONFIG ==========
   private static final int ALLY_MIN_DIST_SQ = 4; // Prevent clumping
+  private static final int CLUSTER_ALLY_THRESHOLD = 3; // Max allies before triggering spread
+  private static final int CLUSTER_SENSE_RADIUS_SQ = 9; // 3 tiles radius for cluster detection
+  private static final int SPREAD_TRIGGER_ALLIES =
+      4; // Trigger proactive spread when this many allies nearby
   private static final int RAT_TRAP_EARLY_TARGET = 10;
   private static final int SMALL_MAP_RAT_TRAP_TARGET = 3;
   private static final int RAT_TRAP_EARLY_WINDOW = 15;
@@ -168,6 +194,21 @@ public class RobotPlayer {
   private static final int ALL_IN_MIN_ATTACKERS = 5; // Need at least this many attackers
   private static final int ALL_IN_MIN_ROUND = 80; // Don't all-in before this round
 
+  // ========== COORDINATED ATTACK CONFIG ==========
+  private static final int COORDINATED_ATTACK_THRESHOLD =
+      2; // Min attackers near enemy to engage (reduced from 3)
+  private static final int NEAR_ENEMY_KING_DIST_SQ =
+      100; // "Near" enemy king = within 10 tiles (increased)
+  private static final int BOTH_KINGS_LOW_THRESHOLD = 150; // Consider king "low" below this HP
+  private static final int RACE_DEFEND_MODE = 1; // Defend when we lose the race
+  private static final int RACE_ATTACK_MODE = 2; // Attack when we win the race
+
+  // ========== VISION CONE AWARENESS CONFIG ==========
+  // Rats have directional vision (visionConeAngle), not 360° - must check behind periodically
+  private static final int VISION_CHECK_BEHIND_INTERVAL = 3; // Check behind every N rounds
+  private static final int VISION_CONE_DANGER_DIST_SQ =
+      16; // Distance to consider "danger zone" behind
+
   // ========== ENEMY KING HP TRACKING ==========
   private static final int ENEMY_KING_STARTING_HP = 500; // Rat kings start with 500 HP
   private static final int BASE_ATTACK_DAMAGE = 10; // Base bite damage
@@ -178,6 +219,29 @@ public class RobotPlayer {
   private static final int CHEESE_CARRIER_PRIORITY_BONUS =
       100; // Extra priority for cheese carriers
   private static final int NEAR_KING_PRIORITY_BONUS = 50; // Extra priority if near enemy king
+
+  // ========== KING RUSH CONFIG ==========
+  // FIX FOR TEAM B LOSS: Attackers were fighting baby rats instead of pushing to enemy king
+  private static final int KING_PROXIMITY_BYPASS_DIST_SQ = 144; // Within 12 tiles, bypass baby rats
+  private static final int LARGE_MAP_KING_BYPASS_DIST_SQ = 400; // Within 20 tiles on large maps
+  private static final int ASSASSIN_DIVISOR = 5; // 20% of attackers are "assassins" that rush king
+  private static final int LARGE_MAP_ASSASSIN_DIVISOR =
+      2; // 50% assassins on large maps (more aggressive)
+  private static final int HEALTHY_HP_THRESHOLD = 80; // HP above which rats don't kite retreat
+  private static final int KING_ATTACK_PRIORITY_DIST_SQ = 25; // Within 5 tiles, always attack king
+
+  // ========== INTERCEPTOR CONFIG ==========
+  // Interceptors patrol between our king and mid-map to slow enemy rushes
+  private static final int INTERCEPTOR_DIVISOR =
+      4; // 25% of non-assassin attackers are interceptors
+  private static final int INTERCEPTOR_ENGAGE_DIST_SQ = 64; // Engage enemies within 8 tiles
+  private static final int INTERCEPTOR_PATROL_OFFSET = 10; // How many tiles toward enemy to patrol
+
+  // ========== TERRAIN CONFIG ==========
+  // SIMPLIFIED: Dirt avoidance removed - going straight through is faster than confusion
+  // Keeping constants for reference but they're no longer actively used
+  private static final int DIRT_AVOIDANCE_DIST = 50; // UNUSED - kept for reference
+  private static final int DIRT_PENALTY_WEIGHT = 10; // UNUSED - kept for reference
 
   // ================================================================
   // SHARED ARRAY SLOT LAYOUT
@@ -205,6 +269,8 @@ public class RobotPlayer {
   // Slot 40: Number of known mines (0-4)
   // Slot 41: Total damage dealt to enemy king (cumulative)
   // Slot 42: Last confirmed enemy king HP (from direct sensing)
+  // Slot 43: Attackers near enemy king count
+  // Slot 44: Race mode (0=normal, 1=defend, 2=attack)
 
   // ================================================================
   // BYTECODE-OPTIMIZED CONSTANTS
@@ -385,10 +451,29 @@ public class RobotPlayer {
   private static int cachedAllInRound = 0;
   private static boolean cachedAllInActive = false;
 
+  // Coordinated attack state
+  private static int cachedAttackersNearEnemy = 0;
+  private static int cachedRaceMode = 0; // 0=normal, 1=defend, 2=attack
+  private static int cachedOurKingHP = 500;
+
   // Cheese mine tracking
   private static MapLocation[] cachedMineLocations = new MapLocation[MAX_TRACKED_MINES];
   private static int cachedNumMines = 0;
   private static int lastMineReadRound = -1;
+
+  // Vision cone awareness - track when we last looked behind
+  private static int lastVisionCheckBehindRound = -100;
+  private static int lastVisionCheckBehindID = -1;
+
+  // Collector relay for enemy king position - collectors store heard positions and relay on
+  // delivery.
+  // NOTE: These static variables are safe in Battlecode because only ONE robot runs per turn
+  // (single-threaded execution). The heardEnemyKingID check ensures state resets when a different
+  // collector runs. Multiple collectors in the same turn would overwrite each other, but that's
+  // fine since we want the most recent heard position anyway.
+  private static MapLocation heardEnemyKingLoc = null;
+  private static int heardEnemyKingRound = -100;
+  private static int heardEnemyKingID = -1;
 
   // Kiting state (per robot)
   private static int kiteState = KITE_STATE_APPROACH;
@@ -443,7 +528,14 @@ public class RobotPlayer {
           || cachedOurKingLoc.y != cachedKingY) {
         cachedOurKingLoc = new MapLocation(cachedKingX, cachedKingY);
       }
-      if (cachedEnemyKingLoc == null
+      // GLOBAL (0,0) PROTECTION: If enemy position is (0,0), it's not set yet
+      // Use map center as fallback to prevent asymmetric behavior for Team B
+      if (cachedEnemyX == 0 && cachedEnemyY == 0 && cachedMapCenter != null) {
+        // Enemy position not set yet - use map center as fallback
+        if (cachedEnemyKingLoc == null || !cachedEnemyKingLoc.equals(cachedMapCenter)) {
+          cachedEnemyKingLoc = cachedMapCenter;
+        }
+      } else if (cachedEnemyKingLoc == null
           || cachedEnemyKingLoc.x != cachedEnemyX
           || cachedEnemyKingLoc.y != cachedEnemyY) {
         cachedEnemyKingLoc = new MapLocation(cachedEnemyX, cachedEnemyY);
@@ -453,16 +545,21 @@ public class RobotPlayer {
 
     // Focus fire target (slots 5-6) - check staleness FIRST to skip read if stale
     int focusRound = rc.readSharedArray(6);
-    if ((r - focusRound) <= FOCUS_FIRE_STALE_ROUNDS) {
+    // Handle uninitialized case (focusRound == 0) and wraparound
+    // If focusRound is 0 and r > FOCUS_FIRE_STALE_ROUNDS, treat as stale
+    boolean focusNotStale =
+        (focusRound > 0) && (((r & 0x3FF) - focusRound + 1024) % 1024 <= FOCUS_FIRE_STALE_ROUNDS);
+    if (focusNotStale) {
       int focusPacked = rc.readSharedArray(5);
       if (focusPacked != 0) {
-        int fx = focusPacked & 0x3F;
-        int fy = (focusPacked >> 6) & 0x3F;
-        int fhp = ((focusPacked >> 12) & 0xF) * 10;
+        // Decode 5-bit packed coords (multiply by 2 to restore precision)
+        int fx = (focusPacked & 0x1F) << 1;
+        int fy = ((focusPacked >> 5) & 0x1F) << 1;
+        // HP no longer packed - will be sensed when needed
         if (cachedFocusTarget == null || cachedFocusTarget.x != fx || cachedFocusTarget.y != fy) {
           cachedFocusTarget = new MapLocation(fx, fy);
         }
-        cachedFocusTargetHP = fhp;
+        cachedFocusTargetHP = 0; // Unknown until sensed
         cachedFocusTargetRound = focusRound;
       } else {
         cachedFocusTarget = null;
@@ -483,13 +580,14 @@ public class RobotPlayer {
       cachedAttackerRatio = EARLY_ATTACKER_RATIO;
     }
 
-    // Enemy ring buffer (slots 8-11)
+    // Enemy ring buffer (slots 8-11) - decode 5-bit packed coords
     for (int i = 0; i < 4; i++) {
       int packed = rc.readSharedArray(8 + i);
       if (packed != 0) {
-        cachedEnemyRingX[i] = packed & 0x3F;
-        cachedEnemyRingY[i] = (packed >> 6) & 0x3F;
-        cachedEnemyRingRound[i] = r - ((packed >> 12) & 0xF); // Decode round delta
+        // Decode 5-bit packed coords (multiply by 2 to restore precision)
+        cachedEnemyRingX[i] = (packed & 0x1F) << 1;
+        cachedEnemyRingY[i] = ((packed >> 5) & 0x1F) << 1;
+        cachedEnemyRingRound[i] = r; // Assume recent
       } else {
         cachedEnemyRingX[i] = -1;
         cachedEnemyRingY[i] = -1;
@@ -514,11 +612,12 @@ public class RobotPlayer {
     int enemyHP = rc.readSharedArray(34);
     if (enemyHP > 0) cachedEnemyKingHP = enemyHP;
 
-    // Rally point (slot 35)
+    // Rally point (slot 35) - decode 5-bit packed coords
     int rallyPacked = rc.readSharedArray(35);
     if (rallyPacked > 0) {
-      int rx = rallyPacked & 0x3F;
-      int ry = (rallyPacked >> 6) & 0x3F;
+      // Decode 5-bit packed coords (multiply by 2 to restore precision)
+      int rx = (rallyPacked & 0x1F) << 1;
+      int ry = ((rallyPacked >> 5) & 0x1F) << 1;
       if (cachedRallyPoint == null || cachedRallyPoint.x != rx || cachedRallyPoint.y != ry) {
         cachedRallyPoint = new MapLocation(rx, ry);
       }
@@ -544,6 +643,12 @@ public class RobotPlayer {
       if (cachedEnemyKingHP < 0) cachedEnemyKingHP = 0;
     }
 
+    // Coordinated attack tracking (slot 43)
+    cachedAttackersNearEnemy = rc.readSharedArray(43);
+
+    // Race mode (slot 44)
+    cachedRaceMode = rc.readSharedArray(44);
+
     // Read mine locations (slots 22-25) - only refresh every 20 rounds
     if (r - lastMineReadRound >= 20) {
       cachedNumMines = rc.readSharedArray(40);
@@ -551,8 +656,9 @@ public class RobotPlayer {
       for (int i = 0; i < cachedNumMines; i++) {
         int packed = rc.readSharedArray(22 + i);
         if (packed > 0) {
-          int mx = packed & 0x3F;
-          int my = (packed >> 6) & 0x3F;
+          // Decode 5-bit packed coords (multiply by 2 to restore precision)
+          int mx = (packed & 0x1F) << 1;
+          int my = ((packed >> 5) & 0x1F) << 1;
           if (cachedMineLocations[i] == null
               || cachedMineLocations[i].x != mx
               || cachedMineLocations[i].y != my) {
@@ -572,9 +678,12 @@ public class RobotPlayer {
 
   private static void writeEnemyToRingBuffer(RobotController rc, MapLocation enemyLoc, int round)
       throws GameActionException {
-    // Pack: bits 0-5 = X, bits 6-11 = Y, bits 12-15 = round delta (capped at 15)
-    int roundDelta = 0; // Current round = 0 delta
-    int packed = (enemyLoc.x & 0x3F) | ((enemyLoc.y & 0x3F) << 6) | ((roundDelta & 0xF) << 12);
+    // BATTLECODE 2026: Shared array max value is 1023 (10 bits)
+    // Pack: (x >> 1) (5 bits) | ((y >> 1) << 5) (5 bits) = 10 bits max = 1023 max value
+    int x = (enemyLoc.x >> 1) & 0x1F; // 5 bits (0-31)
+    int y = (enemyLoc.y >> 1) & 0x1F; // 5 bits (0-31)
+    int packed = x | (y << 5);
+    // Max value: 31 + (31 << 5) = 31 + 992 = 1023 ✓ (exactly at limit)
     rc.writeSharedArray(8 + enemyRingWriteIndex, packed);
     enemyRingWriteIndex = (enemyRingWriteIndex + 1) & 3; // Circular buffer
   }
@@ -716,6 +825,34 @@ public class RobotPlayer {
   private static int chokepointTrapCount = 0;
   private static int lastKingX = -1, lastKingY = -1;
   private static int lastSpawnRound = 0;
+  // Wave spawning tracking
+  private static int lastWaveStartRound = 0; // Round when current wave started
+  private static int waveSpawnedCount = 0; // Rats spawned in current wave
+
+  /**
+   * Helper method for staggered wave spawning. Returns true if we can spawn a rat in the current
+   * wave.
+   */
+  private static boolean canSpawnInWave(int round, int waveSize, int waveCooldown) {
+    if (round == 1) {
+      // First round - start first wave
+      lastWaveStartRound = round;
+      waveSpawnedCount = 0;
+      if (DEBUG) System.out.println("NEW_WAVE:" + round + ":starting wave 1");
+      return true;
+    } else if (waveSpawnedCount < waveSize) {
+      // Current wave not complete - continue spawning
+      return true;
+    } else if (round - lastWaveStartRound >= waveCooldown) {
+      // Wave cooldown elapsed - start new wave
+      lastWaveStartRound = round;
+      waveSpawnedCount = 0;
+      if (DEBUG) System.out.println("NEW_WAVE:" + round + ":starting new wave");
+      return true;
+    }
+    return false;
+  }
+
   private static int totalEnemiesSeen = 0;
   private static int catDamageDealt = 0;
   private static int numKnownMines = 0;
@@ -728,25 +865,66 @@ public class RobotPlayer {
     MapLocation me = rc.getLocation();
     int kingHP = rc.getHealth();
 
-    if (DEBUG && (round & 63) == 0) {
+    // DETAILED DEBUG: Log EVERY round for Team B analysis
+    if (DEBUG) {
       System.out.println(
           "KING:"
               + round
               + ":cheese="
               + cheese
-              + " HP="
+              + ":HP="
               + kingHP
-              + " spawned="
+              + ":spawned="
               + spawnCount
-              + " strategy="
-              + cachedDetectedStrategy
-              + " enemyKingHP="
+              + ":emergency="
+              + cachedEmergencyLevel
+              + ":phase="
+              + cachedGamePhase
+              + ":atkRatio="
+              + cachedAttackerRatio
+              + ":enemyKingHP="
               + cachedEnemyKingHP
-              + " dmgDealt="
-              + cachedDamageToEnemyKing);
+              + ":myPos="
+              + me
+              + ":enemyPos="
+              + cachedEnemyKingLoc);
     }
 
-    // Write position
+    // DEBUG: Log map size and team on round 1
+    if (DEBUG && round == 1) {
+      System.out.println(
+          "INIT:"
+              + round
+              + ":mapSize="
+              + mapSize
+              + ":mapW="
+              + mapWidth
+              + ":mapH="
+              + mapHeight
+              + ":myPos="
+              + me
+              + ":enemyPos="
+              + (mapWidth - 1 - me.x)
+              + ","
+              + (mapHeight - 1 - me.y));
+    }
+
+    // DEBUG: Log every round for first 30 rounds to track early game fully
+    if (DEBUG && round <= 30) {
+      System.out.println(
+          "EARLY:"
+              + round
+              + ":cheese="
+              + cheese
+              + ":spawned="
+              + spawnCount
+              + ":traps="
+              + ratTrapCount
+              + ":cost="
+              + rc.getCurrentRatCost());
+    }
+
+    // Write our position
     if (me.x != lastKingX || me.y != lastKingY) {
       rc.writeSharedArray(0, me.x);
       rc.writeSharedArray(1, me.y);
@@ -754,10 +932,17 @@ public class RobotPlayer {
       lastKingY = me.y;
     }
 
-    // Calculate enemy king (round 1)
+    // Calculate enemy king position FIRST (before trap placement)
+    // This must happen before any code that uses cachedEnemyKingLoc
     if (round == 1) {
-      rc.writeSharedArray(2, mapWidth - 1 - me.x);
-      rc.writeSharedArray(3, mapHeight - 1 - me.y);
+      int enemyX = mapWidth - 1 - me.x;
+      int enemyY = mapHeight - 1 - me.y;
+      rc.writeSharedArray(2, enemyX);
+      rc.writeSharedArray(3, enemyY);
+      // Update local cache immediately so trap placement uses correct position
+      cachedEnemyX = enemyX;
+      cachedEnemyY = enemyY;
+      cachedEnemyKingLoc = new MapLocation(enemyX, enemyY);
     }
 
     boolean smallMap = mapSize == 0;
@@ -766,22 +951,65 @@ public class RobotPlayer {
     int collectorMin = smallMap ? SMALL_MAP_COLLECTOR_MIN : COLLECTOR_MINIMUM;
     int trapTarget = smallMap ? SMALL_MAP_RAT_TRAP_TARGET : RAT_TRAP_EARLY_TARGET;
 
-    // Spawning logic (same as before but with strategy adaptation)
+    // Spawning logic with STAGGERED WAVE SPAWNING to prevent bunching
+    // SMALL MAPS: Spawn ALL initial rats IMMEDIATELY on round 1 - games are decided quickly!
+    // MEDIUM/LARGE MAPS: Spawn rats in waves with map-specific sizes and cooldowns
+    int waveSize;
+    int waveCooldown;
     if (smallMap) {
-      if (spawnCount < initialSpawnTarget) {
+      waveSize = SMALL_MAP_WAVE_SIZE; // 5 rats per wave
+      waveCooldown = SMALL_MAP_WAVE_COOLDOWN; // 2 rounds between waves
+    } else if (mapSize == 1) {
+      waveSize = MEDIUM_MAP_WAVE_SIZE; // 4 rats per wave
+      waveCooldown = MEDIUM_MAP_WAVE_COOLDOWN; // 3 rounds between waves
+    } else {
+      waveSize = WAVE_SIZE; // 3 rats per wave
+      waveCooldown = WAVE_COOLDOWN_ROUNDS; // 5 rounds between waves
+    }
+
+    if (spawnCount < initialSpawnTarget) {
+      // SMALL/MEDIUM MAP OPTIMIZATION: Spawn ALL initial rats immediately (no wave system)
+      // Games are decided quickly on small/medium maps, so we need rats out ASAP
+      if (smallMap || mapSize == 1) {
         int cost = rc.getCurrentRatCost();
         if (cheese > cost + cheeseReserve) {
-          spawnRat(rc, me);
-          if (DEBUG) System.out.println("RUSH_SPAWN:" + round + ":rat#" + spawnCount);
+          if (spawnRat(rc, me)) {
+            if (DEBUG && spawnCount == 1) {
+              // Only log wave params on first spawn to reduce verbosity
+              System.out.println(
+                  "INSTANT_SPAWN:" + round + ":rat#" + spawnCount + ":mapSize=" + mapSize);
+            } else if (DEBUG) {
+              System.out.println("SPAWN:" + round + ":rat#" + spawnCount);
+            }
+          }
+        }
+      } else if (canSpawnInWave(round, waveSize, waveCooldown)) {
+        // LARGE MAPS ONLY: Use wave spawning to prevent bunching
+        int cost = rc.getCurrentRatCost();
+        if (cheese > cost + cheeseReserve) {
+          if (spawnRat(rc, me)) {
+            waveSpawnedCount++;
+            if (DEBUG && spawnCount == 1) {
+              // Only log wave params on first spawn to reduce verbosity
+              System.out.println(
+                  "WAVE_SPAWN:"
+                      + round
+                      + ":rat#"
+                      + spawnCount
+                      + ":waveSize="
+                      + waveSize
+                      + ":cooldown="
+                      + waveCooldown);
+            } else if (DEBUG) {
+              System.out.println("SPAWN:" + round + ":rat#" + spawnCount);
+            }
+          }
         }
       }
-      if (round <= RAT_TRAP_EARLY_WINDOW && ratTrapCount < trapTarget && spawnCount >= 3) {
-        placeDefensiveTrapsTowardEnemy(rc, me);
-      }
-    } else {
-      if (round <= RAT_TRAP_EARLY_WINDOW && ratTrapCount < trapTarget) {
-        placeDefensiveTrapsTowardEnemy(rc, me);
-      }
+    }
+    // Only place traps after spawning some rats
+    if (round <= RAT_TRAP_EARLY_WINDOW && ratTrapCount < trapTarget && spawnCount >= 3) {
+      placeDefensiveTrapsTowardEnemy(rc, me);
     }
 
     // Cat traps (cooperation)
@@ -816,25 +1044,31 @@ public class RobotPlayer {
     rc.writeSharedArray(17, leftCount);
     rc.writeSharedArray(18, rightCount);
 
-    if (DEBUG && (round & 31) == 0) {
+    // Track our king HP for race logic
+    cachedOurKingHP = kingHP;
+
+    // DEBUG: Log army composition more frequently
+    if (DEBUG && (round & 15) == 0) {
       System.out.println(
-          "FLANK:"
+          "ARMY:"
               + round
+              + ":total="
+              + armySize
+              + ":collectors="
+              + collectors
+              + ":HP="
+              + ourTotalHP
               + ":center="
               + centerCount
-              + " left="
+              + ":left="
               + leftCount
-              + " right="
+              + ":right="
               + rightCount);
     }
 
-    // Spawn initial rats
-    if (!smallMap && spawnCount < initialSpawnTarget) {
-      int cost = rc.getCurrentRatCost();
-      if (cheese > cost + cheeseReserve) {
-        spawnRat(rc, me);
-      }
-    } else {
+    // NOTE: Initial spawn logic moved to staggered wave section above
+    // Continuous spawning after initial phase
+    if (spawnCount >= initialSpawnTarget) {
       // Continuous spawning with army health awareness
       int cost = rc.getCurrentRatCost();
       boolean emergencyMode = armySize < MIN_ARMY_SIZE;
@@ -851,7 +1085,7 @@ public class RobotPlayer {
         if (DEBUG) System.out.println("ALL_IN_NO_SPAWN:" + round);
       } else if (spawnBlocked) {
         // Don't spawn - need to save cheese for king survival
-        if (DEBUG)
+        if (DEBUG && (round % 5) == 0)
           System.out.println(
               "SPAWN_BLOCKED:" + round + ":cheese=" + cheese + ":emergency=" + emergencyLevel);
       } else {
@@ -919,6 +1153,50 @@ public class RobotPlayer {
       if (neutrals[i].getType() == UnitType.CAT) {
         nearbyCat = neutrals[i];
         break;
+      }
+    } // PRIORITY CAT EVASION: If cat is close, flee FIRST before anything else!
+    // This ensures king survives by prioritizing evasion over attacking
+    if (nearbyCat != null) {
+      MapLocation catLoc = nearbyCat.getLocation();
+      int distToCat = me.distanceSquaredTo(catLoc);
+
+      // REACTIVE CAT TRAP: Place ONE trap between us and the approaching cat
+      if (distToCat <= 64 && rc.isActionReady()) { // Cat within 8 tiles
+        Direction toCat = me.directionTo(catLoc);
+        if (toCat != Direction.CENTER) {
+          boolean trapPlaced = false;
+          // Try direct path first, then adjacent directions
+          Direction[] trapDirs = {toCat, toCat.rotateLeft(), toCat.rotateRight()};
+          for (int d = 0; d < 3 && !trapPlaced; d++) {
+            Direction dir = trapDirs[d];
+            for (int dist = 2; dist <= 4 && !trapPlaced; dist++) {
+              MapLocation trapLoc = me.translate(dir.dx * dist, dir.dy * dist);
+              if (rc.canPlaceCatTrap(trapLoc)) {
+                rc.placeCatTrap(trapLoc);
+                catTrapCount++;
+                trapPlaced = true;
+                if (DEBUG) {
+                  System.out.println(
+                      "CAT_TRAP_REACTIVE:" + round + ":loc=" + trapLoc + ":catDist=" + distToCat);
+                }
+              }
+            }
+          }
+        }
+      }
+
+      // If cat is very close (within 6 tiles), flee IMMEDIATELY - skip attacking!
+      if (distToCat <= 36) {
+        Direction awayFromCat = catLoc.directionTo(me);
+        if (awayFromCat == Direction.CENTER) awayFromCat = DIRS[round & 7];
+        if (DEBUG) {
+          System.out.println(
+              "CAT_PRIORITY_FLEE:" + round + ":catDist=" + distToCat + ":dir=" + awayFromCat);
+        }
+        if (kingFleeMove(rc, awayFromCat)) {
+          if (PROFILE) profEndTurn(round, rc.getID(), true);
+          return;
+        }
       }
     }
 
@@ -1014,6 +1292,22 @@ public class RobotPlayer {
     // CHEESE MINE TRACKING - scan for mines and broadcast
     updateMineBroadcast(rc, me, round);
 
+    // LISTEN FOR ENEMY KING POSITION SQUEAKS FROM BABY RATS
+    // Baby rats squeak type 1 (enemy king position) when they see the enemy king.
+    // The king must listen for these squeaks and update slots 2-3 so all rats
+    // have the FRESH enemy king position, not the stale round-1 cached position.
+    // This is critical for Team B which may have stale cached position.
+    listenForEnemyKingPositionSqueaks(rc, round);
+
+    // COUNT ATTACKERS NEAR ENEMY KING - using direct vision only
+    // (Self-reporting squeaks removed - SQUEAK_RADIUS_SQUARED=25 is too short range)
+    int attackersNearEnemy = countAttackersNearEnemy(rc, round);
+    rc.writeSharedArray(43, attackersNearEnemy);
+    cachedAttackersNearEnemy = attackersNearEnemy;
+
+    // BOTH-KINGS-LOW RACE LOGIC
+    updateRaceMode(rc, round, kingHP, armySize);
+
     // ALL-IN DETECTION - check if we should trigger all-in attack
     checkAndBroadcastAllIn(rc, round, cheese, armySize);
 
@@ -1060,7 +1354,9 @@ public class RobotPlayer {
     if ((round & 15) == 0) { // Every 16 rounds
       int rallyX = (me.x + cachedMapCenter.x) / 2;
       int rallyY = (me.y + cachedMapCenter.y) / 2;
-      int rallyPacked = (rallyX & 0x3F) | ((rallyY & 0x3F) << 6);
+      // BATTLECODE 2026: max value is 1023 (10 bits)
+      // Pack: (x >> 1) (5 bits) | ((y >> 1) << 5) (5 bits) = 10 bits max = 1023
+      int rallyPacked = ((rallyX >> 1) & 0x1F) | (((rallyY >> 1) & 0x1F) << 5);
       rc.writeSharedArray(35, rallyPacked);
     }
 
@@ -1120,16 +1416,21 @@ public class RobotPlayer {
       }
     }
 
-    // FLEE FROM CATS
+    // FLEE FROM CATS (secondary flee - if cat is medium distance)
     if (nearbyCat != null) {
       MapLocation catLoc = nearbyCat.getLocation();
       Direction awayFromCat = catLoc.directionTo(me);
       if (awayFromCat == Direction.CENTER) awayFromCat = DIRS[round & 7];
-      if (kingFleeMove(rc, awayFromCat)) return;
+      if (kingFleeMove(rc, awayFromCat)) {
+        if (PROFILE) profEndTurn(round, rc.getID(), true);
+        return;
+      }
     }
 
-    // Normal movement
-    if ((round & 1) == 0) {
+    // Normal movement - ALWAYS move when cat is near, otherwise only even rounds
+    // This ensures the king keeps evading even if kingFleeMove() failed above
+    boolean shouldMove = (round & 1) == 0 || nearbyCat != null;
+    if (shouldMove) {
       if (enemyCount == 0 && nearbyCat == null) {
         if (round <= RAT_TRAP_EARLY_WINDOW && ratTrapCount < trapTarget) {
           Direction awayFromEnemy;
@@ -1256,10 +1557,14 @@ public class RobotPlayer {
   private static void writeFocusTarget(RobotController rc, RobotInfo target, int round)
       throws GameActionException {
     MapLocation loc = target.getLocation();
-    int hp = target.getHealth();
-    int packed = (loc.x & 0x3F) | ((loc.y & 0x3F) << 6) | (((hp / 10) & 0xF) << 12);
+    // BATTLECODE 2026: Shared array max value is 1023 (10 bits)
+    // Pack: (x >> 1) (5 bits) | ((y >> 1) << 5) (5 bits) = 10 bits max = 1023 max value
+    int x = (loc.x >> 1) & 0x1F; // 5 bits (0-31)
+    int y = (loc.y >> 1) & 0x1F; // 5 bits (0-31)
+    int packed = x | (y << 5);
+    // Max value: 31 + (31 << 5) = 31 + 992 = 1023 ✓ (exactly at limit)
     rc.writeSharedArray(5, packed);
-    rc.writeSharedArray(6, round);
+    rc.writeSharedArray(6, round & 0x3FF); // Round number mod 1024 to fit in 10 bits
   }
 
   private static void updateEmergencyLevel(RobotController rc, int round, int cheese)
@@ -1387,7 +1692,9 @@ public class RobotPlayer {
         // Add new mine
         if (!alreadyTracked && numKnownMines < MAX_TRACKED_MINES) {
           knownMineLocations[numKnownMines] = mineLoc;
-          int packed = (mineLoc.x & 0x3F) | ((mineLoc.y & 0x3F) << 6);
+          // BATTLECODE 2026: max value is 1023 (10 bits)
+          // Pack: (x >> 1) (5 bits) | ((y >> 1) << 5) (5 bits) = 10 bits max = 1023
+          int packed = ((mineLoc.x >> 1) & 0x1F) | (((mineLoc.y >> 1) & 0x1F) << 5);
           rc.writeSharedArray(22 + numKnownMines, packed);
           numKnownMines++;
           rc.writeSharedArray(40, numKnownMines);
@@ -1400,6 +1707,236 @@ public class RobotPlayer {
   // ================================================================
   // ALL-IN ATTACK COORDINATION
   // ================================================================
+
+  // Reusable result array for parseEnemyKingSqueak to avoid allocation.
+  // [0] = x coordinate, [1] = y coordinate, [2] = sender ID (0 if no valid squeak found)
+  // WARNING: This array is returned directly and reused - callers must process the result
+  // immediately before calling parseEnemyKingSqueak again!
+  private static final int[] parsedSqueakResult = new int[3];
+
+  /**
+   * Parse enemy king position from squeaks. Shared helper used by both king and collectors.
+   *
+   * @param rc RobotController
+   * @param excludeID ID to exclude from processing (typically self), or -1 to include all
+   * @return parsedSqueakResult array: [x, y, senderID] if found, [0, 0, 0] if not found
+   */
+  private static int[] parseEnemyKingSqueak(RobotController rc, int excludeID)
+      throws GameActionException {
+    parsedSqueakResult[0] = 0;
+    parsedSqueakResult[1] = 0;
+    parsedSqueakResult[2] = 0;
+
+    Message[] squeaks = rc.readSqueaks(-1);
+    int len = squeaks.length;
+    int limit = len < MAX_SQUEAKS_TO_READ ? len : MAX_SQUEAKS_TO_READ;
+
+    for (int i = len - 1; i >= len - limit && i >= 0; i--) {
+      Message msg = squeaks[i];
+      // Skip our own squeaks if excludeID is set (use -1 to include all squeaks)
+      // Note: Robot IDs in Battlecode are always positive (>0), so excludeID==0 won't match
+      if (excludeID > 0 && msg.getSenderID() == excludeID) continue;
+
+      int bytes = msg.getBytes();
+      int type = (bytes >>> 28) & 0xF;
+
+      // Type 1 = enemy king position squeak
+      if (type == 1) {
+        int x = (bytes >> 4) & 0xFFF;
+        int y = (bytes >> 16) & 0xFFF;
+
+        // Validate coordinates are on the map
+        if (x >= 0 && x < mapWidth && y >= 0 && y < mapHeight) {
+          parsedSqueakResult[0] = x;
+          parsedSqueakResult[1] = y;
+          parsedSqueakResult[2] = msg.getSenderID();
+          return parsedSqueakResult;
+        }
+      }
+    }
+    return parsedSqueakResult;
+  }
+
+  /**
+   * Listen for enemy king position squeaks from baby rats. When any rat sees the enemy king, they
+   * squeak type 1 with the fresh position. The king listens for these squeaks and updates slots 2-3
+   * so all rats have the current enemy king position.
+   */
+  private static void listenForEnemyKingPositionSqueaks(RobotController rc, int round)
+      throws GameActionException {
+    int[] parsed = parseEnemyKingSqueak(rc, -1); // King listens to all squeaks
+    int x = parsed[0];
+    int y = parsed[1];
+    int senderID = parsed[2];
+
+    if (senderID > 0) {
+      // Valid squeak found - check if position is different from cached
+      if (cachedEnemyKingLoc == null || cachedEnemyKingLoc.x != x || cachedEnemyKingLoc.y != y) {
+        // Update shared array for all rats
+        rc.writeSharedArray(2, x);
+        rc.writeSharedArray(3, y);
+
+        // Update local cache
+        cachedEnemyX = x;
+        cachedEnemyY = y;
+        cachedEnemyKingLoc = new MapLocation(x, y);
+
+        if (DEBUG) {
+          System.out.println(
+              "KING_RECEIVED_ENEMY_POS:"
+                  + round
+                  + ":from="
+                  + senderID
+                  + ":newPos="
+                  + cachedEnemyKingLoc);
+        }
+      }
+    }
+  }
+
+  /**
+   * Collector version of squeak listening - stores heard enemy king positions for relay. Collectors
+   * roam the map and may hear squeaks from assassins near the enemy king. They store the position
+   * and relay it when they deliver cheese to our king.
+   */
+  private static void listenForEnemyKingPositionSqueaksCollector(
+      RobotController rc, int round, int id) throws GameActionException {
+    int[] parsed = parseEnemyKingSqueak(rc, id); // Exclude our own squeaks
+    int x = parsed[0];
+    int y = parsed[1];
+    int senderID = parsed[2];
+
+    if (senderID > 0) {
+      // Valid squeak found - store for relay and update local cache
+      if (heardEnemyKingLoc == null || heardEnemyKingLoc.x != x || heardEnemyKingLoc.y != y) {
+        heardEnemyKingLoc = new MapLocation(x, y);
+        heardEnemyKingRound = round;
+
+        // ALSO update our local cache immediately - helps this collector too!
+        if (cachedEnemyKingLoc == null || cachedEnemyKingLoc.x != x || cachedEnemyKingLoc.y != y) {
+          cachedEnemyKingLoc = heardEnemyKingLoc;
+          cachedEnemyX = x;
+          cachedEnemyY = y;
+        }
+
+        if (DEBUG) {
+          System.out.println(
+              "COLLECTOR_HEARD_ENEMY_POS:"
+                  + round
+                  + ":"
+                  + id
+                  + ":from="
+                  + senderID
+                  + ":loc="
+                  + heardEnemyKingLoc);
+        }
+      }
+    }
+  }
+
+  /**
+   * Count how many of our attackers are near the enemy king using direct vision. Note:
+   * Self-reporting squeaks were removed because SQUEAK_RADIUS_SQUARED=25 (~5 tiles) is too short
+   * range - attackers near enemy king can't squeak back to our king.
+   */
+  private static int countAttackersNearEnemy(RobotController rc, int round)
+      throws GameActionException {
+    int count = 0;
+
+    // Count attackers we can directly see near enemy king
+    if (cachedEnemyKingLoc != null) {
+      RobotInfo[] allies = rc.senseNearbyRobots(KING_VISION_SQ, cachedOurTeam);
+      for (int i = allies.length - 1; i >= 0; i--) {
+        RobotInfo ally = allies[i];
+        if (ally.getType().isBabyRatType()) {
+          int aid = ally.getID();
+          boolean isAttacker = (mapSize == 0) ? (aid % 3 != 0) : ((aid & 1) == 0);
+          if (isAttacker) {
+            int distToEnemy = ally.getLocation().distanceSquaredTo(cachedEnemyKingLoc);
+            if (distToEnemy <= NEAR_ENEMY_KING_DIST_SQ) {
+              count++;
+            }
+          }
+        }
+      }
+    }
+
+    if (DEBUG && count > 0) {
+      System.out.println("ATTACKERS_NEAR_ENEMY:" + round + ":count=" + count);
+    }
+    return count;
+  }
+
+  /**
+   * Update race mode when both kings are low HP. Calculates who wins the HP race and sets strategy
+   * accordingly.
+   */
+  private static void updateRaceMode(RobotController rc, int round, int ourKingHP, int armySize)
+      throws GameActionException {
+    int enemyKingHP = cachedEnemyKingHP;
+
+    // Only activate race logic when both kings are low
+    if (ourKingHP >= BOTH_KINGS_LOW_THRESHOLD && enemyKingHP >= BOTH_KINGS_LOW_THRESHOLD) {
+      // Both kings healthy - normal mode
+      if (cachedRaceMode != 0) {
+        rc.writeSharedArray(44, 0);
+        cachedRaceMode = 0;
+      }
+      return;
+    }
+
+    // At least one king is low - calculate race
+    // Estimate rounds to kill enemy king: enemyHP / (ourAttackers * 10)
+    int ourAttackers = cachedAttackersNearEnemy;
+    if (ourAttackers < 1) ourAttackers = 1;
+
+    // Estimate enemy attackers from army ratio (rough estimate)
+    int enemyAttackers = Math.max(1, armySize / 2); // Assume enemy has similar army
+
+    int roundsToKillEnemy = enemyKingHP / (ourAttackers * 10);
+    int roundsToKillUs = ourKingHP / (enemyAttackers * 10);
+
+    int newRaceMode;
+    if (roundsToKillEnemy < roundsToKillUs) {
+      // We kill them first - go all-in attack mode
+      newRaceMode = RACE_ATTACK_MODE;
+      if (DEBUG)
+        System.out.println(
+            "RACE_ATTACK:"
+                + round
+                + ":ourHP="
+                + ourKingHP
+                + ":enemyHP="
+                + enemyKingHP
+                + ":killEnemy="
+                + roundsToKillEnemy
+                + ":killUs="
+                + roundsToKillUs);
+    } else if (roundsToKillUs < roundsToKillEnemy - 2) {
+      // They kill us first (with margin) - full defense
+      newRaceMode = RACE_DEFEND_MODE;
+      if (DEBUG)
+        System.out.println(
+            "RACE_DEFEND:"
+                + round
+                + ":ourHP="
+                + ourKingHP
+                + ":enemyHP="
+                + enemyKingHP
+                + ":killEnemy="
+                + roundsToKillEnemy
+                + ":killUs="
+                + roundsToKillUs);
+    } else {
+      // Close race - be aggressive (tie-breaker: attack)
+      newRaceMode = RACE_ATTACK_MODE;
+    }
+
+    if (newRaceMode != cachedRaceMode) {
+      rc.writeSharedArray(44, newRaceMode);
+      cachedRaceMode = newRaceMode;
+    }
+  }
 
   private static void checkAndBroadcastAllIn(
       RobotController rc, int round, int cheese, int armySize) throws GameActionException {
@@ -1443,6 +1980,12 @@ public class RobotPlayer {
       }
     }
 
+    // Condition 4: Race mode says attack (both kings low, we win race)
+    if (!shouldAllIn && cachedRaceMode == RACE_ATTACK_MODE) {
+      shouldAllIn = true;
+      if (DEBUG) System.out.println("ALL_IN_TRIGGER:" + round + ":raceMode");
+    }
+
     if (shouldAllIn) {
       rc.writeSharedArray(39, round);
       cachedAllInActive = true;
@@ -1456,15 +1999,20 @@ public class RobotPlayer {
 
   /**
    * Record damage dealt to enemy king. Called when a rat successfully attacks the enemy king.
-   * Updates slot 41 (cumulative damage).
+   * Updates slot 41 (cumulative damage). ONLY KING CAN WRITE TO SHARED ARRAY.
    */
   private static void recordDamageToEnemyKing(RobotController rc, int damage)
       throws GameActionException {
-    int currentDamage = rc.readSharedArray(41);
+    int currentDamage = cachedDamageToEnemyKing;
     int newDamage = currentDamage + damage;
     // Cap at enemy king starting HP (can't deal more damage than they have)
     if (newDamage > ENEMY_KING_STARTING_HP) newDamage = ENEMY_KING_STARTING_HP;
-    rc.writeSharedArray(41, newDamage);
+
+    // Only king can write to shared array
+    if (rc.getType().isRatKingType()) {
+      rc.writeSharedArray(41, newDamage);
+    }
+    // Update local cache for all rats
     cachedDamageToEnemyKing = newDamage;
     cachedEnemyKingHP = ENEMY_KING_STARTING_HP - newDamage;
     if (cachedEnemyKingHP < 0) cachedEnemyKingHP = 0;
@@ -1481,7 +2029,10 @@ public class RobotPlayer {
     }
   }
 
-  /** Called when we can see the enemy king directly. Updates confirmed HP. */
+  /**
+   * Called when we can see the enemy king directly. Updates confirmed HP. ONLY KING CAN WRITE TO
+   * SHARED ARRAY.
+   */
   private static void confirmEnemyKingHP(RobotController rc, int actualHP, int round)
       throws GameActionException {
     // Only update if this is newer information
@@ -1495,11 +2046,16 @@ public class RobotPlayer {
       if (actualDamage > cachedDamageToEnemyKing) {
         // Enemy took more damage than we tracked (maybe from cat or other sources)
         cachedDamageToEnemyKing = actualDamage;
-        rc.writeSharedArray(41, actualDamage);
+        // Only king can write to shared array
+        if (rc.getType().isRatKingType()) {
+          rc.writeSharedArray(41, actualDamage);
+        }
       }
 
-      // Store confirmed HP in slot 42
-      rc.writeSharedArray(42, actualHP);
+      // Store confirmed HP in slot 42 - only king can write
+      if (rc.getType().isRatKingType()) {
+        rc.writeSharedArray(42, actualHP);
+      }
 
       if (DEBUG) {
         System.out.println(
@@ -1508,42 +2064,101 @@ public class RobotPlayer {
     }
   }
 
+  /**
+   * King flee movement - tries ALL 8 directions to escape, prioritizing directions that move away
+   * from the threat. Only returns true after actually MOVING.
+   *
+   * <p>FIX: Previous version returned true after turning without moving, which caused the king to
+   * get stuck rotating in place while the cat approached.
+   */
   private static boolean kingFleeMove(RobotController rc, Direction awayDir)
       throws GameActionException {
     if (awayDir == Direction.CENTER) return false;
-    MapLocation ahead = rc.adjacentLocation(awayDir);
-    if (rc.canSenseLocation(ahead) && rc.canRemoveDirt(ahead)) {
-      rc.removeDirt(ahead);
-      return true;
+
+    // PRIORITY 1: Try to actually MOVE in order of best escape direction
+    // Try all 8 directions, ordered by how well they move us away from threat
+    Direction[] fleeDirs = {
+      awayDir, // Best: directly away
+      awayDir.rotateLeft(), // Good: 45° left of away
+      awayDir.rotateRight(), // Good: 45° right of away
+      awayDir.rotateLeft().rotateLeft(), // Okay: 90° left (perpendicular)
+      awayDir.rotateRight().rotateRight(), // Okay: 90° right (perpendicular)
+      awayDir.rotateLeft().rotateLeft().rotateLeft(), // Poor: 135° (slightly toward)
+      awayDir.rotateRight().rotateRight().rotateRight(), // Poor: 135° (slightly toward)
+      awayDir.opposite() // Last resort: toward threat (but still moving)
+    };
+
+    // Try each direction - prioritize MOVEMENT over everything
+    for (Direction dir : fleeDirs) {
+      if (dir == Direction.CENTER) continue;
+      if (rc.canMove(dir)) {
+        rc.move(dir);
+        if (DEBUG) {
+          System.out.println("KING_FLEE_MOVE:" + rc.getRoundNum() + ":dir=" + dir);
+        }
+        return true;
+      }
     }
+
+    // PRIORITY 2: If completely blocked, try removing obstacles in flee direction
+    // Only do this if we couldn't move at all
+    MapLocation ahead = rc.getLocation().add(awayDir);
+    if (rc.canSenseLocation(ahead)) {
+      // Try to remove dirt blocking escape route
+      if (rc.canRemoveDirt(ahead)) {
+        rc.removeDirt(ahead);
+        if (DEBUG) {
+          System.out.println("KING_FLEE_REMOVE_DIRT:" + rc.getRoundNum() + ":loc=" + ahead);
+        }
+        return true;
+      }
+      // Try to remove rat trap blocking escape route
+      if (rc.canRemoveRatTrap(ahead)) {
+        rc.removeRatTrap(ahead);
+        if (DEBUG) {
+          System.out.println("KING_FLEE_REMOVE_TRAP:" + rc.getRoundNum() + ":loc=" + ahead);
+        }
+        return true;
+      }
+    }
+
+    // PRIORITY 3: Try removing obstacles in adjacent directions too
+    for (int i = 1; i <= 2; i++) {
+      Direction leftDir = awayDir;
+      Direction rightDir = awayDir;
+      for (int j = 0; j < i; j++) {
+        leftDir = leftDir.rotateLeft();
+        rightDir = rightDir.rotateRight();
+      }
+
+      MapLocation leftLoc = rc.getLocation().add(leftDir);
+      if (rc.canSenseLocation(leftLoc) && rc.canRemoveDirt(leftLoc)) {
+        rc.removeDirt(leftLoc);
+        return true;
+      }
+
+      MapLocation rightLoc = rc.getLocation().add(rightDir);
+      if (rc.canSenseLocation(rightLoc) && rc.canRemoveDirt(rightLoc)) {
+        rc.removeDirt(rightLoc);
+        return true;
+      }
+    }
+
+    // PRIORITY 4 (LAST RESORT): Turn toward flee direction for next round
+    // NOTE: This does NOT return true because we didn't actually escape!
+    // The caller should know we failed to move.
     Direction facing = rc.getDirection();
     if (facing != awayDir && rc.canTurn()) {
       rc.turn(awayDir);
-      return true;
+      if (DEBUG) {
+        System.out.println("KING_FLEE_TURN_ONLY:" + rc.getRoundNum() + ":newFacing=" + awayDir);
+      }
+      // Return false - we turned but didn't escape!
+      // This signals to caller that flee failed and they should try other options
     }
-    if (rc.canMove(awayDir)) {
-      rc.move(awayDir);
-      return true;
-    }
-    Direction left = awayDir.rotateLeft();
-    if (rc.canMove(left)) {
-      rc.move(left);
-      return true;
-    }
-    Direction right = awayDir.rotateRight();
-    if (rc.canMove(right)) {
-      rc.move(right);
-      return true;
-    }
-    Direction left2 = left.rotateLeft();
-    if (rc.canMove(left2)) {
-      rc.move(left2);
-      return true;
-    }
-    Direction right2 = right.rotateRight();
-    if (rc.canMove(right2)) {
-      rc.move(right2);
-      return true;
+
+    if (DEBUG) {
+      System.out.println("KING_FLEE_FAILED:" + rc.getRoundNum() + ":blocked in all directions");
     }
     return false;
   }
@@ -1586,23 +2201,37 @@ public class RobotPlayer {
   }
 
   private static void placeCatTraps(RobotController rc, MapLocation me) throws GameActionException {
-    Direction towardCenter = me.directionTo(cachedMapCenter);
-    CAT_TRAP_PRIORITIES[0] = towardCenter;
-    CAT_TRAP_PRIORITIES[1] = towardCenter.rotateLeft();
-    CAT_TRAP_PRIORITIES[2] = towardCenter.rotateRight();
-    CAT_TRAP_PRIORITIES[3] = towardCenter.rotateLeft().rotateLeft();
-    CAT_TRAP_PRIORITIES[4] = towardCenter.rotateRight().rotateRight();
+    // FIX: Place cat traps toward ENEMY, not center!
+    // The cat comes from the enemy side, so we need traps between us and the enemy
+    Direction towardEnemy;
+    if (cachedEnemyKingLoc != null) {
+      towardEnemy = me.directionTo(cachedEnemyKingLoc);
+    } else {
+      towardEnemy = me.directionTo(cachedMapCenter);
+    }
+    if (towardEnemy == Direction.CENTER) towardEnemy = Direction.NORTH;
 
+    CAT_TRAP_PRIORITIES[0] = towardEnemy;
+    CAT_TRAP_PRIORITIES[1] = towardEnemy.rotateLeft();
+    CAT_TRAP_PRIORITIES[2] = towardEnemy.rotateRight();
+    CAT_TRAP_PRIORITIES[3] = towardEnemy.rotateLeft().rotateLeft();
+    CAT_TRAP_PRIORITIES[4] = towardEnemy.rotateRight().rotateRight();
+
+    // Place cat traps at further distances (3-5 tiles) to catch approaching cats
     for (int p = 0; p < 5; p++) {
       Direction dir = CAT_TRAP_PRIORITIES[p];
       if (dir == Direction.CENTER) continue;
       int dx = dir.dx;
       int dy = dir.dy;
-      for (int dist = 2; dist <= 3; dist++) {
+      for (int dist = 3; dist <= 5; dist++) {
         MapLocation trapLoc = me.translate(dx * dist, dy * dist);
         if (rc.canPlaceCatTrap(trapLoc)) {
           rc.placeCatTrap(trapLoc);
           catTrapCount++;
+          if (DEBUG) {
+            System.out.println(
+                "CAT_TRAP_PLACED:" + rc.getRoundNum() + ":loc=" + trapLoc + ":dir=" + dir);
+          }
           return;
         }
       }
@@ -1705,9 +2334,6 @@ public class RobotPlayer {
   // BABY RAT BEHAVIOR
   // ================================================================
 
-  private static MapLocation lastBabyPos = null;
-  private static int lastBabyID = -1;
-  private static int samePosRounds = 0;
   private static MapLocation targetCheese = null;
   private static int targetCheeseRound = -100;
   private static int lastTargetID = -1;
@@ -1748,26 +2374,57 @@ public class RobotPlayer {
     int emergencyLevel = cachedEmergencyLevel;
     boolean allInActive = cachedAllInActive;
 
+    // Pre-compute isAssassin for role assignment (assassins NEVER become collectors)
+    int assassinDivForRole = (mapSize == 2) ? LARGE_MAP_ASSASSIN_DIVISOR : ASSASSIN_DIVISOR;
+    boolean isAssassinForRole = (id % assassinDivForRole) == 0;
+
     if (allInActive) {
       // ALL-IN MODE: Everyone attacks, no exceptions
       myRole = 0;
       if (DEBUG && (round % 20) == 0) System.out.println("ALL_IN_ATTACK:" + round + ":" + id);
-    } else if (emergencyLevel >= 3) {
-      // CRITICAL: All rats become collectors except those already in combat
+    } else if (emergencyLevel >= 3 && !isAssassinForRole) {
+      // CRITICAL: All rats become collectors EXCEPT assassins - they must reach enemy king!
+      // FIX: Assassins never become collectors, even in emergency mode.
+      // Without attackers reaching the enemy king, victory is impossible.
       myRole = 1;
+      if (DEBUG && (round % 10) == 0)
+        System.out.println("EMERGENCY_COLLECTOR:" + round + ":" + id + ":emerg=" + emergencyLevel);
+    } else if (isAssassinForRole) {
+      // ASSASSINS ALWAYS ATTACK - they are our only hope to damage the enemy king
+      myRole = 0;
+      if (DEBUG && emergencyLevel >= 2)
+        System.out.println(
+            "ASSASSIN_STAYS_ATTACKER:" + round + ":" + id + ":emerg=" + emergencyLevel);
     } else if (mapSize == 0) {
       // Small map: all attack for first 25 rounds
-      if (round < SMALL_MAP_ALL_ATTACK_ROUNDS && emergencyLevel == 0) {
+      // Allow all-attack during emergency levels 0-1, only stop at level 2+ (critical)
+      if (round < SMALL_MAP_ALL_ATTACK_ROUNDS && emergencyLevel < 2) {
         myRole = 0;
+        if (DEBUG && round == 1) System.out.println("SMALL_ALL_ATTACK:" + round + ":" + id);
       } else {
         myRole = ((id % 10) < cachedAttackerRatio) ? 0 : 1;
       }
     } else if (mapSize == 1) {
-      // Medium map: all attack for first 40 rounds (unless emergency)
-      if (round < MEDIUM_MAP_ALL_ATTACK_ROUNDS && emergencyLevel == 0) {
+      // Medium map: all attack for first 30 rounds
+      // LESSON: Emergency system was conflicting with all-attack phase!
+      // emergencyLevel < 2 allows attack during mild warnings, stops only at critical
+      if (round < MEDIUM_MAP_ALL_ATTACK_ROUNDS && emergencyLevel < 2) {
         myRole = 0;
+        if (DEBUG && (round % 5) == 0)
+          System.out.println("MED_ALL_ATTACK:" + round + ":" + id + ":emerg=" + emergencyLevel);
       } else {
         myRole = ((id % 10) < cachedAttackerRatio) ? 0 : 1;
+        if (DEBUG && round == MEDIUM_MAP_ALL_ATTACK_ROUNDS) {
+          System.out.println(
+              "MED_PHASE_END:"
+                  + round
+                  + ":"
+                  + id
+                  + ":role="
+                  + (myRole == 0 ? "ATK" : "COL")
+                  + ":emerg="
+                  + emergencyLevel);
+        }
       }
     } else {
       myRole = ((id % 10) < cachedAttackerRatio) ? 0 : 1;
@@ -1775,6 +2432,25 @@ public class RobotPlayer {
 
     int health = rc.getHealth();
     MapLocation me = rc.getLocation();
+
+    // DEBUG: Log role assignment for all rats in early game
+    if (DEBUG && round <= 30) {
+      System.out.println(
+          "ROLE:"
+              + round
+              + ":"
+              + id
+              + ":"
+              + (myRole == 0 ? "ATK" : "COL")
+              + ":mapSize="
+              + mapSize
+              + ":emerg="
+              + emergencyLevel
+              + ":pos="
+              + me
+              + ":distToEnemy="
+              + (cachedEnemyKingLoc != null ? me.distanceSquaredTo(cachedEnemyKingLoc) : -1));
+    }
 
     bcBefore = PROFILE ? Clock.getBytecodeNum() : 0;
     RobotInfo nearbyCat = (mapSize == 0) ? null : findNearbyCat(rc);
@@ -1784,13 +2460,53 @@ public class RobotPlayer {
     int distToKing = me.distanceSquaredTo(cachedOurKingLoc);
 
     // RETREAT CHECK: If retreat signal active, fall back to rally point (not king)
-    if (cachedShouldRetreat && myRole == 0 && distToKing > 16) {
+    // EXCEPTION: Assassins NEVER retreat - they always push to enemy king!
+    if (cachedShouldRetreat && myRole == 0 && distToKing > 16 && !isAssassinForRole) {
       if (DEBUG) System.out.println("RETREAT:" + round + ":" + id + ":falling back");
       // Use rally point if available, otherwise fall back to king
       MapLocation retreatTarget = (cachedRallyPoint != null) ? cachedRallyPoint : cachedOurKingLoc;
       moveTo(rc, me, retreatTarget);
       if (PROFILE) profEndTurn(round, id, false);
       return;
+    }
+
+    // HP-BASED RETREAT: Wounded attackers (HP < 40) retreat to rally point
+    // Exception: Don't retreat if defending king or very close to enemy king
+    // EXCEPTION: Assassins NEVER retreat, even when wounded - they must reach enemy king!
+    int distToEnemyKing =
+        (cachedEnemyKingLoc != null) ? me.distanceSquaredTo(cachedEnemyKingLoc) : Integer.MAX_VALUE;
+    if (myRole == 0
+        && health < WOUNDED_HP_THRESHOLD
+        && !kingNeedsHelp
+        && distToEnemyKing > WOUNDED_RETREAT_EXCEPTION_DIST_SQ
+        && !isAssassinForRole) {
+      // RACE MODE OVERRIDE: In attack race mode, wounded rats still attack
+      if (cachedRaceMode != RACE_ATTACK_MODE) {
+        if (DEBUG) System.out.println("WOUNDED_RETREAT:" + round + ":" + id + ":HP=" + health);
+        MapLocation retreatTarget =
+            (cachedRallyPoint != null) ? cachedRallyPoint : cachedOurKingLoc;
+        moveTo(rc, me, retreatTarget);
+        if (PROFILE) profEndTurn(round, id, false);
+        return;
+      }
+    } // Pre-compute isAssassin once for reuse (avoid redundant calculation)
+    int assassinDiv = (mapSize == 2) ? LARGE_MAP_ASSASSIN_DIVISOR : ASSASSIN_DIVISOR;
+    boolean isAssassin = (myRole == 0) && ((id % assassinDiv) == 0);
+
+    // RACE DEFEND MODE: Attackers return to defend king
+    // EXCEPTION: Assassins NEVER respond to defend recall - they always push to enemy king!
+    // This is critical for winning on large maps where distance is a disadvantage.
+    if (cachedRaceMode == RACE_DEFEND_MODE && myRole == 0 && distToKing > 25) {
+      if (isAssassin) {
+        // Assassins NEVER retreat - they're our best chance to kill the enemy king!
+        if (DEBUG) System.out.println("ASSASSIN_IGNORES_RECALL:" + round + ":" + id);
+        // Don't return - let assassin continue to attack logic below
+      } else {
+        if (DEBUG) System.out.println("RACE_DEFEND_RECALL:" + round + ":" + id);
+        moveTo(rc, me, cachedOurKingLoc);
+        if (PROFILE) profEndTurn(round, id, false);
+        return;
+      }
     }
 
     // Emergency cat sacrifice
@@ -1816,8 +2532,13 @@ public class RobotPlayer {
       return;
     }
 
+    // Determine if this attacker is an interceptor (patrol mid-map to slow enemy rush)
+    // Interceptors are non-assassin attackers assigned by ID
+    boolean isInterceptor = (myRole == 0) && !isAssassin && ((id % INTERCEPTOR_DIVISOR) == 0);
+
     if (myRole == 0) {
-      runAttacker(rc, nearbyCat, round, id, me, kingNeedsHelp, distToKing);
+      runAttacker(
+          rc, nearbyCat, round, id, me, kingNeedsHelp, distToKing, isAssassin, isInterceptor);
     } else {
       runCollector(rc, nearbyCat, round, id, me, kingNeedsHelp, distToKing);
     }
@@ -1841,18 +2562,31 @@ public class RobotPlayer {
     return cachedSwarmRole;
   }
 
-  private static MapLocation getSwarmTarget(MapLocation me, int swarmRole, int round) {
-    int distToEnemy = me.distanceSquaredTo(cachedEnemyKingLoc);
-    if (distToEnemy <= SWARM_ENGAGE_DIST_SQ) return cachedEnemyKingLoc;
-    if (swarmRole == 0) return cachedEnemyKingLoc;
+  private static MapLocation getSwarmTarget(
+      MapLocation me, int swarmRole, int round, MapLocation targetKingLoc) {
+    if (targetKingLoc == null) targetKingLoc = cachedMapCenter;
+
+    // LARGE MAP FIX: Disable swarm flanking on large maps - send everyone directly to king
+    // Flanking causes rats to get stuck going to offset positions instead of the actual king
+    if (mapSize == 2) return targetKingLoc;
+
+    int distToEnemy = me.distanceSquaredTo(targetKingLoc);
+    // ANTI-CLUMPING: Add slight offset based on swarm role to spread attackers
+    // Only when far from target - when close, converge on king
+    if (distToEnemy <= SWARM_ENGAGE_DIST_SQ) return targetKingLoc;
+    if (swarmRole == 0) {
+      // Center swarm still goes direct, but add micro-variation based on ID
+      // This is handled in movement logic now
+      return targetKingLoc;
+    }
 
     // Cache swarm direction to avoid repeated directionTo() calls
     if (lastSwarmDirRound != round) {
-      cachedSwarmDir = cachedOurKingLoc.directionTo(cachedEnemyKingLoc);
+      cachedSwarmDir = cachedOurKingLoc.directionTo(targetKingLoc);
       lastSwarmDirRound = round;
     }
     Direction toEnemy = cachedSwarmDir;
-    if (toEnemy == Direction.CENTER) return cachedEnemyKingLoc;
+    if (toEnemy == Direction.CENTER) return targetKingLoc;
 
     // DYNAMIC SWARM REBALANCING: Check if our flank is understaffed
     boolean isLeftFlank = (swarmRole <= 2);
@@ -1860,7 +2594,7 @@ public class RobotPlayer {
 
     // If our flank has 0 rats (truly orphaned), redirect to center
     if (myFlankCount < MIN_FLANK_COUNT) {
-      return cachedEnemyKingLoc;
+      return targetKingLoc;
     }
 
     // Update cached flank locations periodically to avoid allocation
@@ -1868,15 +2602,15 @@ public class RobotPlayer {
       Direction leftDir = toEnemy.rotateLeft().rotateLeft();
       Direction rightDir = toEnemy.rotateRight().rotateRight();
 
-      int leftX = cachedEnemyKingLoc.x + leftDir.dx * SWARM_FLANK_DIST;
-      int leftY = cachedEnemyKingLoc.y + leftDir.dy * SWARM_FLANK_DIST;
+      int leftX = targetKingLoc.x + leftDir.dx * SWARM_FLANK_DIST;
+      int leftY = targetKingLoc.y + leftDir.dy * SWARM_FLANK_DIST;
       if (leftX < 0) leftX = 0;
       if (leftX >= mapWidth) leftX = mapWidth - 1;
       if (leftY < 0) leftY = 0;
       if (leftY >= mapHeight) leftY = mapHeight - 1;
 
-      int rightX = cachedEnemyKingLoc.x + rightDir.dx * SWARM_FLANK_DIST;
-      int rightY = cachedEnemyKingLoc.y + rightDir.dy * SWARM_FLANK_DIST;
+      int rightX = targetKingLoc.x + rightDir.dx * SWARM_FLANK_DIST;
+      int rightY = targetKingLoc.y + rightDir.dy * SWARM_FLANK_DIST;
       if (rightX < 0) rightX = 0;
       if (rightX >= mapWidth) rightX = mapWidth - 1;
       if (rightY < 0) rightY = 0;
@@ -1902,6 +2636,13 @@ public class RobotPlayer {
   // ATTACKER with KITING STATE MACHINE
   // ================================================================
 
+  /** Get dynamic kite retreat distance based on current HP. */
+  private static int getKiteRetreatDist(int hp) {
+    if (hp < 40) return KITE_RETREAT_DIST_CRITICAL; // 3 tiles
+    if (hp < 60) return KITE_RETREAT_DIST_WOUNDED; // 2 tiles
+    return KITE_RETREAT_DIST_HEALTHY; // 1 tile
+  }
+
   private static void runAttacker(
       RobotController rc,
       RobotInfo nearbyCat,
@@ -1909,11 +2650,16 @@ public class RobotPlayer {
       int id,
       MapLocation me,
       boolean kingNeedsHelp,
-      int distToKing)
+      int distToKing,
+      boolean isAssassin,
+      boolean isInterceptor)
       throws GameActionException {
 
-    int swarmRole = getSwarmRole(id);
-    MapLocation swarmTarget = getSwarmTarget(me, swarmRole, round);
+    int swarmRole =
+        getSwarmRole(
+            id); // cachedEnemyKingLoc is now protected globally in refreshCache() against (0,0)
+    MapLocation swarmTarget = getSwarmTarget(me, swarmRole, round, cachedEnemyKingLoc);
+    int myHP = rc.getHealth();
 
     // Sense enemies
     int bcSense = PROFILE ? Clock.getBytecodeNum() : 0;
@@ -1924,12 +2670,20 @@ public class RobotPlayer {
     RobotInfo[] allies = rc.senseNearbyRobots(BABY_RAT_VISION_SQ, cachedOurTeam);
 
     // Find best target AND focus target in single pass (bytecode optimization)
+    // ALSO: Check for enemy king and squeak position if found!
     RobotInfo bestTarget = null;
     RobotInfo focusTarget = null;
     int minDist = Integer.MAX_VALUE;
+    MapLocation seenEnemyKingLoc = null;
 
     for (int i = enemies.length - 1; i >= 0; i--) {
       RobotInfo enemy = enemies[i];
+      if (enemy.getType().isRatKingType()) {
+        // ENEMY KING SPOTTED! Record position and confirm HP
+        seenEnemyKingLoc = enemy.getLocation();
+        confirmEnemyKingHP(rc, enemy.getHealth(), round);
+        continue;
+      }
       if (!enemy.getType().isBabyRatType()) continue;
       MapLocation enemyLoc = enemy.getLocation();
       int dist = me.distanceSquaredTo(enemyLoc);
@@ -1937,14 +2691,420 @@ public class RobotPlayer {
         minDist = dist;
         bestTarget = enemy;
       }
-      // Check focus target in same loop
-      if (cachedFocusTarget != null && enemyLoc.equals(cachedFocusTarget)) {
+      // Check focus target - use distance <= 4 for 5-bit precision (lost 1 tile from packing)
+      // Distance check for 5-bit precision: max error is 1 tile per axis, so max dist^2 = 2
+      if (cachedFocusTarget != null && enemyLoc.distanceSquaredTo(cachedFocusTarget) <= 2) {
         focusTarget = enemy;
+      }
+    }
+
+    // SQUEAK enemy king position if we saw it - this is how baby rats tell the king!
+    // The king will listen for type 1 squeaks and update the cached position for all rats.
+    if (seenEnemyKingLoc != null) {
+      // LOCAL CACHE UPDATE: Update our own cached position immediately!
+      // This ensures THIS rat uses the fresh position even if squeak doesn't reach king.
+      if (cachedEnemyKingLoc == null || !cachedEnemyKingLoc.equals(seenEnemyKingLoc)) {
+        cachedEnemyKingLoc = seenEnemyKingLoc;
+        cachedEnemyX = seenEnemyKingLoc.x;
+        cachedEnemyY = seenEnemyKingLoc.y;
+        if (DEBUG) {
+          System.out.println(
+              "ATK_LOCAL_CACHE_UPDATE:" + round + ":" + id + ":newLoc=" + seenEnemyKingLoc);
+        }
+      }
+
+      if (round - lastMineSqueakRound >= SQUEAK_THROTTLE_ROUNDS || lastSqueakID != id) {
+        int squeak = (1 << 28) | (seenEnemyKingLoc.y << 16) | (seenEnemyKingLoc.x << 4);
+        rc.squeak(squeak);
+        lastMineSqueakRound = round;
+        lastSqueakID = id;
+        if (DEBUG) {
+          System.out.println(
+              "ATK_SQUEAK_ENEMY_KING:" + round + ":" + id + ":loc=" + seenEnemyKingLoc);
+        }
       }
     }
 
     // Prioritize focus target
     if (focusTarget != null) bestTarget = focusTarget;
+
+    // VISION CONE AWARENESS: Rats have directional vision, check behind periodically
+    // This helps detect enemies that might be flanking us
+    // FIX #1: Only turn if no immediate targets in front (bestTarget == null)
+    // FIX #3: Add bytecode check before vision cone logic
+    if (bestTarget == null && Clock.getBytecodesLeft() > LOW_BYTECODE_THRESHOLD) {
+      if (lastVisionCheckBehindID != id) {
+        lastVisionCheckBehindRound = -100;
+        lastVisionCheckBehindID = id;
+      }
+      if (round - lastVisionCheckBehindRound >= VISION_CHECK_BEHIND_INTERVAL) {
+        lastVisionCheckBehindRound = round;
+        // Check if there might be enemies behind us by sensing in opposite direction
+        Direction facing = rc.getDirection();
+        Direction behind = facing.opposite();
+        MapLocation behindLoc = me.add(behind).add(behind); // 2 tiles behind
+        if (rc.canSenseLocation(behindLoc)) {
+          // We can see behind us, check for enemies
+          RobotInfo[] behindEnemies =
+              rc.senseNearbyRobots(behindLoc, VISION_CONE_DANGER_DIST_SQ, cachedEnemyTeam);
+          if (behindEnemies.length > 0) {
+            if (DEBUG) {
+              System.out.println(
+                  "ENEMY_BEHIND:" + round + ":" + id + ":count=" + behindEnemies.length);
+            }
+            // If enemies behind and we're healthy, turn to face them
+            if (myHP >= HEALTHY_HP_THRESHOLD && rc.canTurn()) {
+              rc.turn(behind);
+              return;
+            }
+          }
+        }
+      }
+    }
+
+    // ========== UNIVERSAL ENEMY KING ATTACK ==========
+    // FIX: Rats have DIRECTIONAL attacks - they can only attack in the direction they're facing!
+    // This block ensures ALL attackers near the enemy king turn to face it and attack.
+    // Previously, rats would arrive at the king, fail canAttack() because they weren't facing it,
+    // then call moveToKingAggressive() which would turn them but RETURN without attacking again.
+    int distToEnemyKing =
+        (cachedEnemyKingLoc != null) ? me.distanceSquaredTo(cachedEnemyKingLoc) : Integer.MAX_VALUE;
+
+    // CRITICAL FIX: Skip universal attack block for medium map assassins!
+    // Medium map assassins have specialized tile-targeting logic in their own section.
+    // If we don't skip this, the universal block turns toward CENTER while the medium
+    // block turns toward a specific TILE, causing infinite oscillation between directions.
+    boolean isMedMapAssassin = isAssassin && mapSize == 1;
+
+    if (cachedEnemyKingLoc != null
+        && distToEnemyKing <= 9
+        && rc.isActionReady()
+        && !isMedMapAssassin) {
+      // Within 3 tiles of enemy king - TURN TO FACE IT FIRST, then attack
+      // Note: Turning is FREE (no cooldown) in Battlecode, so we can turn and attack same turn
+      Direction toKing = me.directionTo(cachedEnemyKingLoc);
+      if (toKing != Direction.CENTER) {
+        Direction facing = rc.getDirection();
+        // Simplified: canTurn() already checks if turning is ready
+        if (facing != toKing && rc.canTurn()) {
+          rc.turn(toKing);
+          if (DEBUG) {
+            System.out.println(
+                "TURN_TO_KING:" + round + ":" + id + ":from=" + facing + ":to=" + toKing);
+          }
+        }
+      }
+
+      // Now try to attack the king (after potentially turning)
+      // Try attacking center first
+      if (rc.canAttack(cachedEnemyKingLoc)) {
+        rc.attack(cachedEnemyKingLoc);
+        recordDamageToEnemyKing(rc, BASE_ATTACK_DAMAGE);
+        if (DEBUG) System.out.println("KING_HIT_CENTER:" + round + ":" + id);
+        return;
+      }
+      // Try all 8 adjacent tiles of the king's 3x3 area
+      for (int dx = -1; dx <= 1; dx++) {
+        for (int dy = -1; dy <= 1; dy++) {
+          if (dx == 0 && dy == 0) continue;
+          MapLocation tile = cachedEnemyKingLoc.translate(dx, dy);
+          if (rc.canAttack(tile)) {
+            rc.attack(tile);
+            recordDamageToEnemyKing(rc, BASE_ATTACK_DAMAGE);
+            if (DEBUG) System.out.println("KING_HIT_ADJ:" + round + ":" + id + ":tile=" + tile);
+            return;
+          }
+        }
+      }
+    }
+
+    // ========== KING RUSH LOGIC ==========
+    // FIX FOR TEAM B LOSS: Push to enemy king instead of fighting baby rats
+
+    // Dynamic bypass distance based on map size - larger maps need more aggressive rushing
+    int bypassDist = (mapSize == 2) ? LARGE_MAP_KING_BYPASS_DIST_SQ : KING_PROXIMITY_BYPASS_DIST_SQ;
+    // isAssassin is now passed as a parameter (pre-computed in runBabyRat to avoid redundant
+    // calculation)
+
+    // MEDIUM MAP ASSASSIN FIX: Use FRESH sensed king position like ratbot4!
+    // The key insight: ratbot4 successfully attacks because it uses enemy.getLocation()
+    // from the sensed enemies array, not a stale cached position from round 1.
+    if (isAssassin && mapSize == 1) {
+      // STEP 1: Check if we can SEE the enemy king (get FRESH position!)
+      MapLocation freshKingLoc = null;
+      for (int i = enemies.length - 1; i >= 0; i--) {
+        RobotInfo enemy = enemies[i];
+        if (enemy.getType().isRatKingType()) {
+          freshKingLoc = enemy.getLocation();
+          // Also confirm HP when we see it
+          confirmEnemyKingHP(rc, enemy.getHealth(), round);
+
+          // LOCAL CACHE UPDATE: Update our own cached position immediately!
+          // This ensures THIS assassin uses the fresh position even if squeak doesn't reach king.
+          if (cachedEnemyKingLoc == null || !cachedEnemyKingLoc.equals(freshKingLoc)) {
+            cachedEnemyKingLoc = freshKingLoc;
+            cachedEnemyX = freshKingLoc.x;
+            cachedEnemyY = freshKingLoc.y;
+            if (DEBUG) {
+              System.out.println(
+                  "MED_ASSASSIN_LOCAL_CACHE_UPDATE:"
+                      + round
+                      + ":"
+                      + id
+                      + ":newLoc="
+                      + freshKingLoc);
+            }
+          }
+
+          // SQUEAK the fresh position so king can update cached position for all rats!
+          // This is critical for Team B which may have stale cached position
+          if (round - lastMineSqueakRound >= SQUEAK_THROTTLE_ROUNDS || lastSqueakID != id) {
+            int squeak = (1 << 28) | (freshKingLoc.y << 16) | (freshKingLoc.x << 4);
+            rc.squeak(squeak);
+            lastMineSqueakRound = round;
+            lastSqueakID = id;
+            if (DEBUG) {
+              System.out.println(
+                  "MED_ASSASSIN_SQUEAK_KING:" + round + ":" + id + ":loc=" + freshKingLoc);
+            }
+          }
+
+          if (DEBUG) {
+            System.out.println(
+                "MED_ASSASSIN_SEE_KING:"
+                    + round
+                    + ":"
+                    + id
+                    + ":freshLoc="
+                    + freshKingLoc
+                    + ":cachedLoc="
+                    + cachedEnemyKingLoc);
+          }
+          break;
+        }
+      }
+
+      // STEP 2: Use fresh position if available, otherwise fall back to cached
+      MapLocation attackKingLoc = (freshKingLoc != null) ? freshKingLoc : cachedEnemyKingLoc;
+
+      // STEP 3: SIMPLE ATTACK LOOP like ratbot4 - try all 9 tiles!
+      // This is the key fix: ratbot4 just loops through all tiles and calls canAttack().
+      // No complex orthogonal vs diagonal logic, no distance checks - just try everything.
+      if (attackKingLoc != null && rc.isActionReady()) {
+        for (int dx = -1; dx <= 1; dx++) {
+          for (int dy = -1; dy <= 1; dy++) {
+            MapLocation tile = attackKingLoc.translate(dx, dy);
+            if (rc.canAttack(tile)) {
+              rc.attack(tile);
+              recordDamageToEnemyKing(rc, BASE_ATTACK_DAMAGE);
+              if (DEBUG) {
+                System.out.println(
+                    "MED_ASSASSIN_HIT:"
+                        + round
+                        + ":"
+                        + id
+                        + ":tile="
+                        + tile
+                        + ":fresh="
+                        + (freshKingLoc != null));
+              }
+              return;
+            }
+          }
+        }
+      }
+
+      // STEP 4: Can't attack king - try to fight blocking baby rats if close
+      // This is important: if we're close but can't attack, there might be blockers
+      if (attackKingLoc != null) {
+        int distToAttackKing = me.distanceSquaredTo(attackKingLoc);
+        if (distToAttackKing <= 100 && bestTarget != null && rc.isActionReady()) {
+          // Within 10 tiles of enemy king - fight any blocking baby rats
+          MapLocation targetLoc = bestTarget.getLocation();
+          if (rc.canAttack(targetLoc)) {
+            rc.attack(targetLoc);
+            if (DEBUG) {
+              System.out.println(
+                  "MED_ASSASSIN_CLEAR_PATH:" + round + ":" + id + ":target=" + targetLoc);
+            }
+            return;
+          }
+        }
+      }
+
+      // STEP 5: Move toward king - use aggressive movement
+      MapLocation moveTarget = (attackKingLoc != null) ? attackKingLoc : cachedMapCenter;
+      if (DEBUG) {
+        int distToMove = me.distanceSquaredTo(moveTarget);
+        System.out.println(
+            "MED_ASSASSIN_PUSH:"
+                + round
+                + ":"
+                + id
+                + ":distKing="
+                + distToMove
+                + ":fresh="
+                + (freshKingLoc != null));
+      }
+      moveToKingAggressive(rc, me, moveTarget);
+      return;
+    }
+
+    // KING PROXIMITY BYPASS: When close to enemy king, ignore baby rats and push!
+    if (distToEnemyKing <= bypassDist) {
+      // We're close to enemy king - check if we should bypass baby rats
+      boolean shouldBypassBabyRats = false;
+
+      if (bestTarget == null) {
+        // No enemies in sight - push to king
+        shouldBypassBabyRats = true;
+      } else if (!bestTarget.getType().isRatKingType()) {
+        // Target is a baby rat, not the king
+        if (isAssassin) {
+          // Assassins always bypass baby rats to rush king
+          shouldBypassBabyRats = true;
+          if (DEBUG)
+            System.out.println(
+                "ASSASSIN_BYPASS:" + round + ":" + id + ":distKing=" + distToEnemyKing);
+        } else if (distToEnemyKing <= KING_ATTACK_PRIORITY_DIST_SQ) {
+          // Very close to king - everyone rushes
+          shouldBypassBabyRats = true;
+          if (DEBUG)
+            System.out.println("KING_RUSH:" + round + ":" + id + ":distKing=" + distToEnemyKing);
+        } else if (myHP >= HEALTHY_HP_THRESHOLD && enemies.length <= 2) {
+          // Healthy and not too many enemies - push through
+          shouldBypassBabyRats = true;
+        }
+      }
+
+      if (shouldBypassBabyRats) {
+        // Attack enemy king - try all 9 tiles of the 3x3 king area
+        // Kings occupy a 3x3 area, so we need to check multiple tiles
+        if (cachedEnemyKingLoc != null && rc.isActionReady()) {
+          if (DEBUG && distToEnemyKing <= 25) {
+            System.out.println(
+                "KING_ATTACK_ATTEMPT:"
+                    + round
+                    + ":"
+                    + id
+                    + ":distKing="
+                    + distToEnemyKing
+                    + ":myPos="
+                    + me
+                    + ":kingPos="
+                    + cachedEnemyKingLoc
+                    + ":canAttackCenter="
+                    + rc.canAttack(cachedEnemyKingLoc));
+          }
+          // Try attacking center first
+          if (rc.canAttack(cachedEnemyKingLoc)) {
+            rc.attack(cachedEnemyKingLoc);
+            recordDamageToEnemyKing(rc, BASE_ATTACK_DAMAGE);
+            if (DEBUG) System.out.println("KING_HIT_CENTER:" + round + ":" + id);
+            return;
+          }
+          // Try all 8 adjacent tiles of the king's 3x3 area
+          for (int dx = -1; dx <= 1; dx++) {
+            for (int dy = -1; dy <= 1; dy++) {
+              if (dx == 0 && dy == 0) continue;
+              MapLocation tile = cachedEnemyKingLoc.translate(dx, dy);
+              if (rc.canAttack(tile)) {
+                rc.attack(tile);
+                recordDamageToEnemyKing(rc, BASE_ATTACK_DAMAGE);
+                if (DEBUG)
+                  System.out.println("KING_HIT_TILE:" + round + ":" + id + ":tile=" + tile);
+                return;
+              }
+            }
+          }
+          // Still can't attack - need to get closer using AGGRESSIVE movement
+          if (DEBUG && distToEnemyKing <= 16) {
+            System.out.println("KING_TOO_FAR:" + round + ":" + id + ":dist=" + distToEnemyKing);
+          }
+        }
+        // Also try attacking any king we can see in enemies array
+        for (int i = enemies.length - 1; i >= 0; i--) {
+          RobotInfo enemy = enemies[i];
+          if (enemy.getType().isRatKingType()) {
+            // Confirm enemy king HP when we see it
+            confirmEnemyKingHP(rc, enemy.getHealth(), round);
+            MapLocation kingCenter = enemy.getLocation();
+            if (rc.canAttack(kingCenter)) {
+              rc.attack(kingCenter);
+              recordDamageToEnemyKing(rc, BASE_ATTACK_DAMAGE);
+              if (DEBUG) System.out.println("KING_HIT:" + round + ":" + id);
+              return;
+            }
+            // Try adjacent tiles
+            for (int dx = -1; dx <= 1; dx++) {
+              for (int dy = -1; dy <= 1; dy++) {
+                if (dx == 0 && dy == 0) continue;
+                MapLocation tile = kingCenter.translate(dx, dy);
+                if (rc.canAttack(tile)) {
+                  rc.attack(tile);
+                  recordDamageToEnemyKing(rc, BASE_ATTACK_DAMAGE);
+                  if (DEBUG) System.out.println("KING_HIT_ADJ:" + round + ":" + id);
+                  return;
+                }
+              }
+            }
+          }
+        }
+        // Push toward enemy king using AGGRESSIVE close-range movement
+        // This tries all 8 directions to find one that gets closer, instead of
+        // waiting 3 rounds stuck before using Bug2
+        if (distToEnemyKing <= 25) {
+          // Very close - use aggressive movement that tries all directions
+          moveToKingAggressive(rc, me, cachedEnemyKingLoc);
+        } else {
+          // Further away - use normal movement
+          moveTo(rc, me, cachedEnemyKingLoc);
+        }
+        return;
+      }
+    }
+
+    // ASSASSIN ROLE: Always rush king regardless of distance
+    if (isAssassin && (bestTarget == null || !bestTarget.getType().isRatKingType())) {
+      // Assassin with no king target - rush to king location
+      if (DEBUG)
+        System.out.println("ASSASSIN_RUSH:" + round + ":" + id + ":distKing=" + distToEnemyKing);
+      moveTo(rc, me, cachedEnemyKingLoc != null ? cachedEnemyKingLoc : swarmTarget);
+      return;
+    }
+
+    // LARGE MAP AGGRESSIVE MODE: On large maps, always prioritize pushing to enemy king
+    if (mapSize == 2 && enemies.length == 0 && distToEnemyKing > KING_ATTACK_PRIORITY_DIST_SQ) {
+      // No enemies visible on large map - rush toward enemy king
+      moveTo(rc, me, cachedEnemyKingLoc != null ? cachedEnemyKingLoc : swarmTarget);
+      return;
+    }
+
+    // ========== INTERCEPTOR LOGIC ==========
+    // Interceptors patrol mid-map to engage enemies and slow their rush to our king
+    // This creates a defensive buffer while assassins push to enemy king
+    if (isInterceptor && !kingNeedsHelp) {
+      // Calculate patrol point: between our king and map center, offset toward enemy
+      MapLocation patrolTarget = getInterceptorPatrolPoint(round);
+
+      // If we see enemies, engage them!
+      if (bestTarget != null) {
+        int distToEnemy = me.distanceSquaredTo(bestTarget.getLocation());
+        if (distToEnemy <= INTERCEPTOR_ENGAGE_DIST_SQ) {
+          // Engage the enemy - this slows their rush
+          if (DEBUG)
+            System.out.println("INTERCEPTOR_ENGAGE:" + round + ":" + id + ":dist=" + distToEnemy);
+          // Fall through to normal combat logic below
+        }
+      } else {
+        // No enemies - patrol to intercept position
+        if (DEBUG && (round % 20) == 0) {
+          System.out.println("INTERCEPTOR_PATROL:" + round + ":" + id + ":target=" + patrolTarget);
+        }
+        moveTo(rc, me, patrolTarget);
+        return;
+      }
+    }
 
     // KITING STATE MACHINE
     if (bestTarget != null && minDist <= KITE_ENGAGE_DIST_SQ) {
@@ -1952,6 +3112,10 @@ public class RobotPlayer {
 
       // Predictive targeting: aim where enemy will be
       MapLocation predictedLoc = predictEnemyPosition(targetLoc, round);
+
+      // DYNAMIC KITE DISTANCE based on HP
+      // FIX: Healthy rats don't retreat - press the attack!
+      int kiteRetreatDist = (myHP >= HEALTHY_HP_THRESHOLD) ? 0 : getKiteRetreatDist(myHP);
 
       switch (kiteState) {
         case KITE_STATE_APPROACH:
@@ -1985,9 +3149,18 @@ public class RobotPlayer {
                 rc.attack(targetLoc);
               }
               lastAttackedLoc = targetLoc;
-              kiteState = KITE_STATE_RETREAT;
-              kiteRetreatTurns = KITE_RETREAT_DIST;
-              if (DEBUG) System.out.println("KITE_ATTACK:" + round + ":" + id);
+              // Only retreat if not healthy
+              if (kiteRetreatDist > 0) {
+                kiteState = KITE_STATE_RETREAT;
+                kiteRetreatTurns = kiteRetreatDist;
+                if (DEBUG)
+                  System.out.println(
+                      "KITE_ATTACK:" + round + ":" + id + ":retreatDist=" + kiteRetreatDist);
+              } else {
+                // Healthy rat - stay and fight, push forward!
+                kiteState = KITE_STATE_APPROACH;
+                if (DEBUG) System.out.println("PRESS_ATTACK:" + round + ":" + id + ":HP=" + myHP);
+              }
               return;
             }
           }
@@ -1996,7 +3169,7 @@ public class RobotPlayer {
           return;
 
         case KITE_STATE_RETREAT:
-          // Retreat after attacking
+          // Retreat after attacking - use dynamic distance
           if (kiteRetreatTurns > 0 && rc.isMovementReady()) {
             Direction awayFromEnemy = targetLoc.directionTo(me);
             if (awayFromEnemy != Direction.CENTER) {
@@ -2180,6 +3353,9 @@ public class RobotPlayer {
       }
     }
 
+    // Self-reporting squeaks removed - SQUEAK_RADIUS_SQUARED=25 (~5 tiles) is too short
+    // for attackers near enemy king to report back to our king
+
     // DENIAL PATROL: Some attackers target enemy-side mines
     if (round >= DENIAL_PATROL_START_ROUND
         && (id % DENIAL_PATROL_DIVISOR) == 0
@@ -2192,8 +3368,67 @@ public class RobotPlayer {
       }
     }
 
+    // DEBUG: Log attacker position EVERY round to track movement
+    if (DEBUG) {
+      int distToEnemy =
+          (cachedEnemyKingLoc != null) ? me.distanceSquaredTo(cachedEnemyKingLoc) : -1;
+      System.out.println(
+          "ATK:"
+              + round
+              + ":"
+              + id
+              + ":pos="
+              + me
+              + ":distEnemy="
+              + distToEnemy
+              + ":HP="
+              + myHP
+              + ":enemies="
+              + enemies.length
+              + ":kiteState="
+              + kiteState);
+    }
+
     // Move to swarm target
     moveTo(rc, me, swarmTarget);
+  }
+
+  /**
+   * Get the patrol point for interceptors - between our king and mid-map, positioned to intercept
+   * enemies rushing to our king.
+   */
+  // Cached interceptor patrol point to avoid allocation in hot path
+  private static MapLocation cachedInterceptorPatrolPoint = null;
+
+  private static int lastInterceptorPatrolRound = -1;
+
+  private static MapLocation getInterceptorPatrolPoint(int round) {
+    // Only recalculate every 10 rounds to save bytecode
+    if (cachedInterceptorPatrolPoint != null && (round - lastInterceptorPatrolRound) < 10) {
+      return cachedInterceptorPatrolPoint;
+    }
+
+    if (cachedOurKingLoc == null || cachedMapCenter == null) {
+      return cachedMapCenter;
+    }
+    // Calculate direction from our king toward enemy/center
+    MapLocation targetDir = (cachedEnemyKingLoc != null) ? cachedEnemyKingLoc : cachedMapCenter;
+    Direction towardEnemy = cachedOurKingLoc.directionTo(targetDir);
+    if (towardEnemy == Direction.CENTER) towardEnemy = Direction.NORTH;
+
+    // Patrol point is INTERCEPTOR_PATROL_OFFSET tiles from our king toward enemy
+    int patrolX = cachedOurKingLoc.x + towardEnemy.dx * INTERCEPTOR_PATROL_OFFSET;
+    int patrolY = cachedOurKingLoc.y + towardEnemy.dy * INTERCEPTOR_PATROL_OFFSET;
+
+    // Clamp to map bounds
+    if (patrolX < 0) patrolX = 0;
+    if (patrolX >= mapWidth) patrolX = mapWidth - 1;
+    if (patrolY < 0) patrolY = 0;
+    if (patrolY >= mapHeight) patrolY = mapHeight - 1;
+
+    cachedInterceptorPatrolPoint = new MapLocation(patrolX, patrolY);
+    lastInterceptorPatrolRound = round;
+    return cachedInterceptorPatrolPoint;
   }
 
   private static MapLocation getDenialPatrolTarget(MapLocation me, int round) {
@@ -2243,6 +3478,18 @@ public class RobotPlayer {
       return;
     }
 
+    // COLLECTOR RELAY: Listen for enemy king position squeaks from attackers!
+    // Collectors roam the map and may hear squeaks from assassins near the enemy king.
+    // When collectors deliver cheese (within 4 tiles of our king), they relay the position.
+    // This creates a reliable communication chain: Assassins -> Collectors -> King -> All Rats
+    if (heardEnemyKingID != id) {
+      // Reset for new collector
+      heardEnemyKingLoc = null;
+      heardEnemyKingRound = -100;
+      heardEnemyKingID = id;
+    }
+    listenForEnemyKingPositionSqueaksCollector(rc, round, id);
+
     // COLLECTOR SURVIVAL PRIORITY: In emergency, collectors flee from all combat
     int emergencyLevel = cachedEmergencyLevel;
     boolean survivalMode = (emergencyLevel >= 2);
@@ -2272,7 +3519,9 @@ public class RobotPlayer {
       if (cachedFocusTarget != null) {
         for (int i = enemies.length - 1; i >= 0; i--) {
           RobotInfo enemy = enemies[i];
-          if (enemy.getType().isBabyRatType() && enemy.getLocation().equals(cachedFocusTarget)) {
+          // Distance check for 5-bit precision (lost 1 tile from packing)
+          if (enemy.getType().isBabyRatType()
+              && enemy.getLocation().distanceSquaredTo(cachedFocusTarget) <= 2) {
             focusTarget = enemy;
             break;
           }
@@ -2432,6 +3681,27 @@ public class RobotPlayer {
       int amt = rc.getRawCheese();
       if (rc.canTransferCheese(cachedOurKingLoc, amt)) {
         rc.transferCheese(cachedOurKingLoc, amt);
+
+        // COLLECTOR RELAY: When delivering cheese (within 4 tiles of king),
+        // relay any enemy king position we heard from attackers!
+        // Squeak range is only 4 tiles, but we're guaranteed to be close to king now.
+        if (heardEnemyKingLoc != null && (round - heardEnemyKingRound) <= 30) {
+          // Only relay if we heard it recently (within 30 rounds)
+          if (round - lastMineSqueakRound >= COLLECTOR_RELAY_THROTTLE_ROUNDS
+              || lastSqueakID != id) {
+            int squeak = (1 << 28) | (heardEnemyKingLoc.y << 16) | (heardEnemyKingLoc.x << 4);
+            rc.squeak(squeak);
+            lastMineSqueakRound = round;
+            lastSqueakID = id;
+            if (DEBUG) {
+              System.out.println(
+                  "COLLECTOR_RELAY_ENEMY_POS:" + round + ":" + id + ":loc=" + heardEnemyKingLoc);
+            }
+            // Clear after relaying to avoid spamming same position
+            heardEnemyKingLoc = null;
+          }
+        }
+
         babyRatPlaceTrap(rc, me, round, id);
         return;
       }
@@ -2475,6 +3745,117 @@ public class RobotPlayer {
   // Cached ID for moveTo to avoid rc.getID() call
   private static int moveToLastID = -1;
 
+  // Pre-allocated arrays for adjacent directions to avoid allocation in hot path
+  // Two arrays for ID-based variation (even vs odd)
+  private static final Direction[] ADJACENT_DIRS_EVEN = new Direction[4];
+  private static final Direction[] ADJACENT_DIRS_ODD = new Direction[4];
+  // Pre-allocated arrays for aggressive king movement (6 directions each)
+  private static final Direction[] AGGRESSIVE_DIRS_EVEN = new Direction[6];
+  private static final Direction[] AGGRESSIVE_DIRS_ODD = new Direction[6];
+
+  // Static offsets for king tile iteration (avoid allocation in hot path)
+  // Orthogonal offsets: [0,1], [1,0], [0,-1], [-1,0]
+  private static final int[][] ORTHO_OFFSETS = {{0, 1}, {1, 0}, {0, -1}, {-1, 0}};
+  // Diagonal offsets: [-1,-1], [-1,1], [1,-1], [1,1]
+  private static final int[][] DIAG_OFFSETS = {{-1, -1}, {-1, 1}, {1, -1}, {1, 1}};
+
+  /**
+   * Count how many allies are near a destination tile. Used for anti-clumping logic - prefer
+   * destinations with fewer allies.
+   */
+  private static int countAlliesNearDest(RobotController rc, MapLocation dest)
+      throws GameActionException {
+    if (!rc.canSenseLocation(dest)) return 0;
+    RobotInfo[] nearbyAllies = rc.senseNearbyRobots(dest, CLUSTER_SENSE_RADIUS_SQ, cachedOurTeam);
+    return nearbyAllies.length;
+  }
+
+  /**
+   * Check if a location is a hazard (rat trap or ally blocking). Used to reduce duplicate hazard
+   * checking code in moveTo() and moveToKingAggressive().
+   *
+   * @return true if the location has a hazard (should not move there), false if safe
+   */
+  private static boolean isHazardAt(RobotController rc, MapLocation loc)
+      throws GameActionException {
+    if (!rc.canSenseLocation(loc)) return false; // Assume safe if can't sense
+    MapInfo info = rc.senseMapInfo(loc);
+    // Check for rat trap
+    if (info.getTrap() == TrapType.RAT_TRAP) return true;
+    // Check for impassable terrain
+    if (!info.isPassable()) return true;
+    // Check for ally blocking
+    if (rc.isLocationOccupied(loc)) {
+      RobotInfo occupant = rc.senseRobotAtLocation(loc);
+      if (occupant != null && occupant.getTeam() == cachedOurTeam) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Populate the adjacent directions arrays based on the desired direction. This avoids allocating
+   * new arrays every moveTo() call.
+   */
+  private static void populateAdjacentDirs(Direction desired) {
+    // Even ID array: left first
+    ADJACENT_DIRS_EVEN[0] = desired.rotateLeft();
+    ADJACENT_DIRS_EVEN[1] = desired.rotateRight();
+    ADJACENT_DIRS_EVEN[2] = desired.rotateLeft().rotateLeft();
+    ADJACENT_DIRS_EVEN[3] = desired.rotateRight().rotateRight();
+    // Odd ID array: right first
+    ADJACENT_DIRS_ODD[0] = desired.rotateRight();
+    ADJACENT_DIRS_ODD[1] = desired.rotateLeft();
+    ADJACENT_DIRS_ODD[2] = desired.rotateRight().rotateRight();
+    ADJACENT_DIRS_ODD[3] = desired.rotateLeft().rotateLeft();
+  }
+
+  /**
+   * Populate the aggressive directions arrays for king rush movement. These include 6 directions (3
+   * rotations each way) for more thorough path finding.
+   */
+  private static void populateAdjacentDirsAggressive(Direction toKing) {
+    // Even ID array: left first
+    AGGRESSIVE_DIRS_EVEN[0] = toKing.rotateLeft();
+    AGGRESSIVE_DIRS_EVEN[1] = toKing.rotateRight();
+    AGGRESSIVE_DIRS_EVEN[2] = toKing.rotateLeft().rotateLeft();
+    AGGRESSIVE_DIRS_EVEN[3] = toKing.rotateRight().rotateRight();
+    AGGRESSIVE_DIRS_EVEN[4] = toKing.rotateLeft().rotateLeft().rotateLeft();
+    AGGRESSIVE_DIRS_EVEN[5] = toKing.rotateRight().rotateRight().rotateRight();
+    // Odd ID array: right first
+    AGGRESSIVE_DIRS_ODD[0] = toKing.rotateRight();
+    AGGRESSIVE_DIRS_ODD[1] = toKing.rotateLeft();
+    AGGRESSIVE_DIRS_ODD[2] = toKing.rotateRight().rotateRight();
+    AGGRESSIVE_DIRS_ODD[3] = toKing.rotateLeft().rotateLeft();
+    AGGRESSIVE_DIRS_ODD[4] = toKing.rotateRight().rotateRight().rotateRight();
+    AGGRESSIVE_DIRS_ODD[5] = toKing.rotateLeft().rotateLeft().rotateLeft();
+  }
+
+  /**
+   * Check if we're in a cluster and should spread out. Returns true if we have too many allies
+   * nearby.
+   */
+  private static boolean shouldSpreadOut(RobotController rc, MapLocation me)
+      throws GameActionException {
+    RobotInfo[] nearbyAllies = rc.senseNearbyRobots(me, CLUSTER_SENSE_RADIUS_SQ, cachedOurTeam);
+    return nearbyAllies.length >= SPREAD_TRIGGER_ALLIES;
+  }
+
+  /**
+   * Get a spread direction - perpendicular to target direction, varied by ID. This helps rats
+   * spread out when clustered.
+   */
+  private static Direction getSpreadDirection(Direction toTarget, int id) {
+    if (toTarget == Direction.CENTER) return Direction.NORTH;
+    // Alternate left/right based on ID to create spread
+    if ((id & 1) == 0) {
+      return toTarget.rotateLeft().rotateLeft(); // 90° left
+    } else {
+      return toTarget.rotateRight().rotateRight(); // 90° right
+    }
+  }
+
   private static void moveTo(RobotController rc, MapLocation me, MapLocation target)
       throws GameActionException {
     if (!rc.isMovementReady()) return;
@@ -2491,145 +3872,332 @@ public class RobotPlayer {
       return;
     }
 
+    int id = moveToLastID;
+    int round = rc.getRoundNum();
     Direction facing = rc.getDirection();
     MapLocation ahead = rc.adjacentLocation(facing);
-
-    if (rc.canRemoveDirt(ahead)) {
-      rc.removeDirt(ahead);
-      return;
-    }
-    if (rc.canRemoveRatTrap(ahead)) {
-      rc.removeRatTrap(ahead);
-      return;
-    }
-    if (rc.canRemoveCatTrap(ahead)) {
-      rc.removeCatTrap(ahead);
-      return;
-    }
-
-    // Use cached ID from runBabyRat instead of calling rc.getID()
-    int id = moveToLastID;
-    if (lastBabyID != id) {
-      lastBabyPos = null;
-      samePosRounds = 0;
-      lastBabyID = id;
-    }
-    if (lastBabyPos != null && lastBabyPos.equals(me)) {
-      samePosRounds++;
-    } else {
-      samePosRounds = 0;
-    }
-    lastBabyPos = me;
-
-    if (samePosRounds >= FORCED_MOVEMENT_THRESHOLD) {
-      Direction bug2Dir = bug2(rc, target, me, id);
-      if (bug2Dir != Direction.CENTER) {
-        if (facing != bug2Dir && rc.canTurn()) {
-          rc.turn(bug2Dir);
-          return;
-        }
-        if (rc.canMoveForward()) {
-          rc.moveForward();
-          return;
-        }
-      }
-    }
-
     Direction desired = me.directionTo(target);
     if (desired == Direction.CENTER) return;
 
-    if (facing == desired) {
-      MapLocation nextLoc = ahead;
-      if (!rc.onTheMap(nextLoc)) {
-        Direction left = desired.rotateLeft();
-        if (left != Direction.CENTER && rc.canTurn()) {
-          rc.turn(left);
-          return;
-        }
-        Direction right = desired.rotateRight();
-        if (right != Direction.CENTER && rc.canTurn()) {
-          rc.turn(right);
-          return;
-        }
-        return;
-      }
-      if (rc.canSenseLocation(nextLoc)) {
-        MapInfo nextInfo = rc.senseMapInfo(nextLoc);
-        if (!nextInfo.isPassable()) {
-          Direction left = desired.rotateLeft();
-          if (rc.canTurn()) {
-            rc.turn(left);
-            return;
-          }
-          Direction right = desired.rotateRight();
-          if (rc.canTurn()) {
-            rc.turn(right);
-            return;
-          }
-        }
-        if (nextInfo.getTrap() == TrapType.RAT_TRAP) {
-          Direction left = desired.rotateLeft();
-          if (rc.canTurn()) {
-            rc.turn(left);
-            return;
-          }
-          Direction right = desired.rotateRight();
-          if (rc.canTurn()) {
-            rc.turn(right);
-            return;
-          }
-        }
-        if (rc.isLocationOccupied(nextLoc)) {
-          RobotInfo blocker = rc.senseRobotAtLocation(nextLoc);
-          if (blocker != null && blocker.getTeam() == cachedOurTeam) {
-            Direction left = desired.rotateLeft();
-            if (rc.canTurn()) {
-              rc.turn(left);
-              return;
+    // Define startIdx early so it's available for all strategies
+    int startIdx = id % DIRS_LEN;
+
+    // ANTI-CLUMPING: If too many allies nearby, try to spread out
+    // This prevents rats from bunching up and blocking each other
+    // ASSASSIN BYPASS: Assassins skip spread logic - they must go straight to king
+    int assassinDiv = (mapSize == 2) ? LARGE_MAP_ASSASSIN_DIVISOR : ASSASSIN_DIVISOR;
+    boolean isAssassinInMoveTo = (id % assassinDiv) == 0;
+
+    // Also skip spread on large maps entirely - it causes rats to get stuck
+    boolean skipSpread = isAssassinInMoveTo || (mapSize == 2);
+
+    if (!skipSpread && Clock.getBytecodesLeft() > 1500 && shouldSpreadOut(rc, me)) {
+      Direction spreadDir = getSpreadDirection(desired, id);
+
+      // Try spreading perpendicular, but only if it doesn't take us too far from target
+      if (rc.canMove(spreadDir)) {
+        MapLocation spreadDest = me.add(spreadDir);
+        int currentDist = me.distanceSquaredTo(target);
+        int spreadDist = spreadDest.distanceSquaredTo(target);
+        // Allow spread if it doesn't increase distance too much
+        if (spreadDist <= currentDist + 8) {
+          int alliesAtSpread = countAlliesNearDest(rc, spreadDest);
+          if (alliesAtSpread < CLUSTER_ALLY_THRESHOLD) {
+            if (DEBUG) {
+              System.out.println("SPREAD_MOVE:" + round + ":" + id + ":dir=" + spreadDir);
             }
-            Direction right = desired.rotateRight();
-            if (rc.canTurn()) {
-              rc.turn(right);
-              return;
-            }
+            rc.move(spreadDir);
+            return;
           }
         }
       }
-      if (rc.canMoveForward()) {
-        rc.moveForward();
+    }
+
+    // STRATEGY 1: Try direct movement toward target
+    if (facing == desired && rc.canMoveForward() && !isHazardAt(rc, ahead)) {
+      rc.moveForward();
+      return;
+    }
+
+    // STRATEGY 2: Try moving in desired direction (handles case where not facing that way)
+    if (rc.canMove(desired)) {
+      MapLocation destLoc = me.add(desired);
+      if (!isHazardAt(rc, destLoc)) {
+        rc.move(desired);
         return;
       }
     }
 
+    // STRATEGY 3: Try adjacent directions (rotateLeft/Right) - TRY ALL, not just turn
+    // This is critical: instead of just turning and returning, we try to actually MOVE
+    // Use pre-allocated arrays to avoid allocation in hot path
+    populateAdjacentDirs(desired);
+    Direction[] adjacentDirs = ((id & 1) == 0) ? ADJACENT_DIRS_EVEN : ADJACENT_DIRS_ODD;
+
+    for (int k = 0; k < 4; k++) {
+      Direction altDir = adjacentDirs[k];
+      if (altDir == Direction.CENTER) continue;
+      if (rc.canMove(altDir)) {
+        MapLocation destLoc = me.add(altDir);
+        if (!isHazardAt(rc, destLoc)) {
+          rc.move(altDir);
+          return;
+        }
+      }
+    }
+
+    // STRATEGY 4: Remove obstacles blocking our path
+    // Try removing obstacles in both 'ahead' direction and 'desired' direction
+    boolean removedObstacle = false;
+    // First try the direction we're facing
+    if (rc.canRemoveDirt(ahead)) {
+      rc.removeDirt(ahead);
+      removedObstacle = true;
+    } else if (rc.canRemoveRatTrap(ahead)) {
+      rc.removeRatTrap(ahead);
+      removedObstacle = true;
+    } else if (rc.canRemoveCatTrap(ahead)) {
+      rc.removeCatTrap(ahead);
+      removedObstacle = true;
+    }
+    // If facing != desired, also try removing obstacles in desired direction
+    if (!removedObstacle && facing != desired) {
+      MapLocation desiredLoc = me.add(desired);
+      if (rc.canRemoveDirt(desiredLoc)) {
+        rc.removeDirt(desiredLoc);
+        removedObstacle = true;
+      } else if (rc.canRemoveRatTrap(desiredLoc)) {
+        rc.removeRatTrap(desiredLoc);
+        removedObstacle = true;
+      } else if (rc.canRemoveCatTrap(desiredLoc)) {
+        rc.removeCatTrap(desiredLoc);
+        removedObstacle = true;
+      }
+    }
+    // If we removed an obstacle but can't move (used action), return
+    if (removedObstacle) return;
+
+    // STRATEGY 5: Use Bug2 pathfinding - ALWAYS try it when direct paths fail
+    // Don't rely on samePosRounds counter (it doesn't work with static variables)
+    // Removed '&& bug2Dir != desired' check - Bug2 may return desired if it's actually valid now
+    Direction bug2Dir = bug2(rc, target, me, id, round);
+    if (bug2Dir != Direction.CENTER) {
+      if (rc.canMove(bug2Dir)) {
+        if (DEBUG) {
+          System.out.println("BUG2_MOVE:" + round + ":" + id + ":dir=" + bug2Dir);
+        }
+        rc.move(bug2Dir);
+        return;
+      }
+    }
+
+    // STRATEGY 6: All 8 directions fallback with ally density consideration
+    Direction bestFallbackDir = null;
+    int lowestDensity = Integer.MAX_VALUE;
+
+    for (int j = 0; j < DIRS_LEN; j++) {
+      int i = (startIdx + j) % DIRS_LEN;
+      Direction dir = DIRS[i];
+      if (dir == Direction.CENTER) continue;
+      if (rc.canMove(dir)) {
+        MapLocation dest = me.add(dir);
+        // Check for hazards using helper method (only check trap, not ally - we want any move)
+        if (rc.canSenseLocation(dest)) {
+          MapInfo info = rc.senseMapInfo(dest);
+          if (info.getTrap() == TrapType.RAT_TRAP) continue;
+        }
+
+        int density = countAlliesNearDest(rc, dest);
+        if (density < lowestDensity) {
+          lowestDensity = density;
+          bestFallbackDir = dir;
+          // If we found a direction with no allies, take it immediately
+          if (density == 0) break;
+        }
+      }
+    }
+
+    if (bestFallbackDir != null) {
+      if (DEBUG) {
+        System.out.println(
+            "FALLBACK_MOVE:"
+                + round
+                + ":"
+                + id
+                + ":dir="
+                + bestFallbackDir
+                + ":density="
+                + lowestDensity);
+      }
+      rc.move(bestFallbackDir);
+      return;
+    }
+
+    // STRATEGY 7: If still can't move, try turning toward target for next round
     if (facing != desired && rc.isTurningReady() && rc.canTurn()) {
       rc.turn(desired);
       return;
     }
 
-    if (!rc.canMoveForward() && rc.getMovementCooldownTurns() < 10) {
-      for (int i = 0; i < DIRS_LEN; i++) {
-        Direction dir = DIRS[i];
-        if (rc.canMove(dir)) {
-          // Ally spacing check: avoid clumping
-          MapLocation dest = me.add(dir);
-          boolean tooClose = false;
-          RobotInfo[] nearbyAllies = rc.senseNearbyRobots(dest, ALLY_MIN_DIST_SQ, cachedOurTeam);
-          if (nearbyAllies.length > 2) tooClose = true; // Too many allies nearby
-          if (!tooClose) {
-            rc.move(dir);
-            return;
-          }
-        }
-      }
-      // If all dirs have clumping, move anyway to avoid being stuck
-      for (int i = 0; i < DIRS_LEN; i++) {
-        Direction dir = DIRS[i];
-        if (rc.canMove(dir)) {
-          rc.move(dir);
-          return;
-        }
+    // STRATEGY 8: Last resort - any movable direction at all (ignore all preferences)
+    for (int j = 0; j < DIRS_LEN; j++) {
+      int i = (startIdx + j) % DIRS_LEN;
+      Direction dir = DIRS[i];
+      if (dir != Direction.CENTER && rc.canMove(dir)) {
+        rc.move(dir);
+        return;
       }
     }
+  }
+
+  // ================================================================
+  // CLOSE-RANGE KING RUSH MOVEMENT
+  // ================================================================
+
+  /**
+   * Aggressive close-range movement for when we're near the enemy king. Unlike normal moveTo, this:
+   * 1. Tries ALL 8 directions to find one that gets us closer 2. Doesn't wait to be stuck before
+   * trying alternates 3. Prioritizes any movement over turning Returns true if we moved or turned,
+   * false if completely blocked.
+   */
+  private static boolean moveToKingAggressive(
+      RobotController rc, MapLocation me, MapLocation kingLoc) throws GameActionException {
+    // FIX #2: Cache round and id at start for consistency and bytecode savings
+    int round = rc.getRoundNum();
+    int id = rc.getID();
+
+    if (!rc.isMovementReady()) {
+      if (DEBUG) {
+        System.out.println("KING_MOVE_NOT_READY:" + round + ":" + id + ":pos=" + me);
+      }
+      return false;
+    }
+
+    int currentDist = me.distanceSquaredTo(kingLoc);
+    Direction toKing = me.directionTo(kingLoc);
+    if (toKing == Direction.CENTER) return false;
+
+    Direction facing = rc.getDirection();
+
+    // Strategy 1: If facing king and can move forward, do it
+    if (facing == toKing && rc.canMoveForward()) {
+      if (DEBUG) {
+        System.out.println("KING_MOVE_FORWARD:" + round + ":" + id + ":dir=" + toKing);
+      }
+      rc.moveForward();
+      return true;
+    }
+
+    // Strategy 2: Try direct move toward king
+    // SIMPLIFIED: No dirt avoidance - go straight through
+    if (rc.canMove(toKing)) {
+      MapLocation directDest = me.add(toKing);
+      if (!isHazardAt(rc, directDest)) {
+        if (DEBUG) {
+          System.out.println("KING_MOVE_DIRECT:" + round + ":" + id + ":dir=" + toKing);
+        }
+        rc.move(toKing);
+        return true;
+      }
+    }
+
+    // Strategy 3: Try adjacent directions (rotateLeft/Right of toKing)
+    // SIMPLIFIED: No dirt preference - just find any direction that gets us closer
+    // ID-BASED VARIATION: Use pre-populated arrays based on ID to spread rats across paths
+    populateAdjacentDirsAggressive(toKing);
+    Direction[] tryDirs = ((id & 1) == 0) ? AGGRESSIVE_DIRS_EVEN : AGGRESSIVE_DIRS_ODD;
+
+    // Find best direction that gets us closer (or at least same distance)
+    // ANTI-CLUMPING: Factor in ally density at destination
+    Direction bestDir = null;
+    int bestScore = Integer.MAX_VALUE; // Lower is better
+
+    for (Direction dir : tryDirs) {
+      if (dir == Direction.CENTER) continue;
+      if (!rc.canMove(dir)) continue;
+
+      // Check if this direction gets us closer or same distance
+      MapLocation dest = me.add(dir);
+      int newDist = dest.distanceSquaredTo(kingLoc);
+
+      // Use helper method to check for hazards
+      if (isHazardAt(rc, dest)) continue;
+
+      // ANTI-CLUMPING: Count allies near destination
+      int allyDensity = countAlliesNearDest(rc, dest);
+
+      // Calculate score: distance + ally density penalty
+      int score = newDist + (allyDensity * 5);
+
+      if (score < bestScore) {
+        bestScore = score;
+        bestDir = dir;
+      }
+    }
+
+    if (bestDir != null) {
+      if (DEBUG) {
+        System.out.println(
+            "KING_MOVE_ALT:" + round + ":" + id + ":dir=" + bestDir + ":score=" + bestScore);
+      }
+      rc.move(bestDir);
+      return true;
+    }
+
+    // Strategy 4: Can't move - try turning toward king for next round
+    if (facing != toKing && rc.canTurn()) {
+      if (DEBUG) {
+        System.out.println("KING_MOVE_TURN:" + round + ":" + id + ":toDir=" + toKing);
+      }
+      rc.turn(toKing);
+      return true;
+    }
+
+    // Strategy 5: Try to remove obstacles in front
+    MapLocation ahead = rc.adjacentLocation(facing);
+    if (rc.canRemoveDirt(ahead)) {
+      if (DEBUG) {
+        System.out.println("KING_MOVE_REMOVE_DIRT:" + round + ":" + id);
+      }
+      rc.removeDirt(ahead);
+      return true;
+    }
+    if (rc.canRemoveRatTrap(ahead)) {
+      if (DEBUG) {
+        System.out.println("KING_MOVE_REMOVE_TRAP:" + round + ":" + id);
+      }
+      rc.removeRatTrap(ahead);
+      return true;
+    }
+
+    // FIX #4 & #5: Use Bug2 as fallback - use rc.canMove(bug2Dir) instead of canMoveForward()
+    // This correctly handles the direction returned by Bug2
+    Direction bug2Dir = bug2(rc, kingLoc, me, id, round);
+    if (bug2Dir != Direction.CENTER && rc.canMove(bug2Dir)) {
+      if (DEBUG) {
+        System.out.println("KING_MOVE_BUG2:" + round + ":" + id + ":dir=" + bug2Dir);
+      }
+      rc.move(bug2Dir);
+      return true;
+    }
+
+    // FIX #1: Log when completely blocked for diagnosis
+    if (DEBUG) {
+      System.out.println(
+          "KING_MOVE_BLOCKED:"
+              + round
+              + ":"
+              + id
+              + ":pos="
+              + me
+              + ":facing="
+              + facing
+              + ":toKing="
+              + toKing
+              + ":dist="
+              + currentDist);
+    }
+    return false;
   }
 
   // ================================================================
@@ -2641,6 +4209,11 @@ public class RobotPlayer {
   private static Direction bugTracingDir = Direction.NORTH;
   private static int bugStartDist = 0;
   private static int lastBugID = -1;
+
+  // Tolerance for Bug2 target changes - don't reset if target moved < this distance squared
+  // This prevents mid-trace resets when enemy king position updates slightly
+  // INCREASED from 25 to 100 to prevent constant target oscillation on large maps
+  private static final int BUG2_TARGET_TOLERANCE_SQ = 100; // 10 tiles
 
   /** Check if we can safely move in a direction (avoids rat traps). */
   private static boolean canMoveSafely(RobotController rc, MapLocation me, Direction dir)
@@ -2654,9 +4227,52 @@ public class RobotPlayer {
     return true;
   }
 
-  private static Direction bug2(RobotController rc, MapLocation target, MapLocation me, int id)
+  /**
+   * Check if we can safely move in a direction (avoids rat traps only). SIMPLIFIED: No longer
+   * prefers non-dirt paths - just checks if move is possible.
+   */
+  private static int getMoveSafetyScore(RobotController rc, MapLocation me, Direction dir)
       throws GameActionException {
-    if (lastBugID != id || bugTarget == null || !bugTarget.equals(target)) {
+    if (!rc.canMove(dir)) return 0;
+    MapLocation dest = me.add(dir);
+    if (!rc.canSenseLocation(dest)) return 1; // Assume passable if can't sense
+
+    MapInfo info = rc.senseMapInfo(dest);
+    if (info.getTrap() == TrapType.RAT_TRAP) return 0; // Avoid traps completely
+
+    return 1; // Can move - don't distinguish dirt vs non-dirt
+  }
+
+  private static Direction bug2(
+      RobotController rc, MapLocation target, MapLocation me, int id, int round)
+      throws GameActionException {
+    // FIX: Use tolerance-based check instead of exact equality
+    // This prevents Bug2 state reset when enemy king position updates slightly mid-trace
+    boolean targetChanged = false;
+    if (lastBugID != id || bugTarget == null) {
+      targetChanged = true;
+    } else {
+      // Only reset if target moved significantly (> 5 tiles)
+      int targetMoveDist = bugTarget.distanceSquaredTo(target);
+      if (targetMoveDist > BUG2_TARGET_TOLERANCE_SQ) {
+        targetChanged = true;
+        if (DEBUG) {
+          System.out.println(
+              "BUG2_TARGET_CHANGE:"
+                  + round
+                  + ":"
+                  + id
+                  + ":old="
+                  + bugTarget
+                  + ":new="
+                  + target
+                  + ":dist="
+                  + targetMoveDist);
+        }
+      }
+    }
+
+    if (targetChanged) {
       bugTarget = target;
       bugTracing = false;
       lastBugID = id;
@@ -2665,8 +4281,10 @@ public class RobotPlayer {
     Direction toTarget = me.directionTo(target);
     if (toTarget == Direction.CENTER) return Direction.CENTER;
 
-    // Use safe move check that avoids rat traps
-    if (!bugTracing && canMoveSafely(rc, me, toTarget)) return toTarget;
+    // SIMPLIFIED: No dirt avoidance - go straight through
+    if (!bugTracing) {
+      if (canMoveSafely(rc, me, toTarget)) return toTarget;
+    }
 
     if (!bugTracing) {
       bugTracing = true;
@@ -2676,6 +4294,8 @@ public class RobotPlayer {
 
     if (bugTracing) {
       int curDist = me.distanceSquaredTo(target);
+
+      // SIMPLIFIED: No dirt avoidance - simple tracing
       if (curDist < bugStartDist && canMoveSafely(rc, me, toTarget)) {
         bugTracing = false;
         return toTarget;
