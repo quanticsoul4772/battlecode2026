@@ -5,7 +5,7 @@
 [![Engine v1.0.6](https://img.shields.io/badge/Battlecode-v1.0.6-blue.svg)](https://battlecode.org)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-Competition bot for MIT Battlecode 2026 - "Uneasy Alliances". Features strategic resource management, pathfinding algorithms, and combat behavior optimized for bytecode constraints.
+Competition bot for MIT Battlecode 2026 - "Uneasy Alliances". Features a unified value function architecture, squeak-based communication, and aggressive seek-and-destroy tactics optimized for bytecode constraints.
 
 ---
 
@@ -23,11 +23,10 @@ cd battlecode2026/scaffold
 ./gradlew test
 
 # Run a match
-./gradlew run
+./gradlew run -PteamA=ratbot6 -PteamB=ratbot5 -Pmaps=DefaultLarge
 
 # View replay in client
 ./client/battlecode-client.exe
-# Then load: matches/ratbot4-vs-examplefuncsplayer-on-DefaultSmall.bc26
 ```
 
 **For detailed instructions**, see [AGENTS.md](AGENTS.md) - the comprehensive developer guide.
@@ -40,10 +39,10 @@ cd battlecode2026/scaffold
 battlecode2026/
 ├── scaffold/              # Main development workspace
 │   ├── src/              # Bot implementations
-│   │   ├── ratbot/       # Base bot (2,500+ lines)
-│   │   ├── ratbot2/      # Iteration 2
-│   │   ├── ratbot3/      # Iteration 3
-│   │   ├── ratbot4/      # Current active bot
+│   │   ├── ratbot6/      # Current active bot (~1700 lines)
+│   │   ├── ratbot5/      # Previous iteration (~3500 lines)
+│   │   ├── ratbot4/      # Legacy bot
+│   │   ├── ratbot/       # Original bot
 │   │   └── examplefuncsplayer/  # Reference implementation
 │   ├── test/             # Unit and integration tests
 │   │   ├── algorithms/   # Algorithm tests (pathfinding, vision, geometry)
@@ -61,7 +60,7 @@ battlecode2026/
 │   └── ...               # 28+ documentation files
 ├── .github/workflows/    # CI/CD pipelines
 ├── AGENTS.md             # Developer guide (start here)
-├── RATBOT4_PLAN.md       # Current implementation strategy
+├── RATBOT4_PLAN.md       # Legacy implementation strategy
 ├── SUCCESS_CRITERIA.md   # Performance metrics
 ├── .env.example          # Configuration template
 └── README.md             # This file
@@ -69,33 +68,31 @@ battlecode2026/
 
 ---
 
-## Current Bot: ratbot4
+## Current Bot: ratbot6
 
-### Strategy Overview
+### Philosophy
 
-**Population**: 12 rats (economic balance)
-- **6 Attackers** (ID % 2 == 0): Rush enemy positions, attack baby rats, use cheese-enhanced attacks
-- **6 Collectors** (ID % 2 == 1): Gather cheese, deliver to king, maintain economy
+**Intelligence in the algorithm, not in roles.** Every rat uses a unified value function to decide what to do. "Roles" emerge from game state, not from assignment.
 
 ### Key Features
 
-- Adaptive spawning: 12 rats initially, replacement every 50 rounds
-- Combat targeting: Attack baby rats (easier than 3x3 king), cheese-enhanced attacks when surplus exceeds 500
-- Economy management: Track cheese flow, emergency delivery protocols
-- Pathfinding: Bug2 algorithm for obstacle navigation
-- Attacker suicide: Self-destruct after 100 idle rounds to free population slots
-- Zero-allocation logging: Performance tracking without bytecode overhead
-- Bytecode optimization: Static buffers, backward loops, minimal allocations
+- **Unified Value Function**: All target selection through `scoreAllTargets()` - enemy king, enemy rats, cheese, delivery
+- **Smart Spawning**: Rats spawn toward the enemy king, not in fixed directions
+- **Charge Mode**: Within 4 tiles of enemy king, ignore trap avoidance and attack directly
+- **Squeak Communication**: Baby rats broadcast enemy king position via squeaks; king relays to shared array
+- **Cat Evasion**: King has 10-tile danger zone and 13-tile caution zone for cat avoidance
+- **Focus Fire**: King designates targets via shared array for coordinated kills
+- **Vision Cone Management**: Rats turn to face enemy king when nearby but can't see it
 
-### Performance Metrics
+### Test Results
 
-Success criteria:
-- King survives longer than enemy king
-- Positive cheese income (deliveries greater than 3 cheese per round)
-- Regular transfer messages in logs
-- Death from combat, not starvation
+| Map | Team A | Team B |
+|-----|--------|--------|
+| DefaultSmall | ✅ Win | ✅ Win |
+| DefaultMedium | ✅ Win | ✅ Win |
+| DefaultLarge | ✅ Win | ✅ Win |
 
-See [SUCCESS_CRITERIA.md](SUCCESS_CRITERIA.md) for detailed metrics.
+See [scaffold/RATBOT6_README.md](scaffold/RATBOT6_README.md) for detailed architecture and tuning documentation.
 
 ---
 
@@ -122,7 +119,7 @@ See [SUCCESS_CRITERIA.md](SUCCESS_CRITERIA.md) for detailed metrics.
 
 # Run matches
 ./gradlew run                              # Use gradle.properties settings
-./gradlew run -PteamA=ratbot4 -PteamB=examplefuncsplayer
+./gradlew run -PteamA=ratbot6 -PteamB=ratbot5 -Pmaps=DefaultLarge
 
 # Submission
 ./gradlew zipForSubmit       # Create submission.zip
@@ -159,7 +156,7 @@ See [SUCCESS_CRITERIA.md](SUCCESS_CRITERIA.md) for detailed metrics.
 ### Essential Reading
 
 1. [AGENTS.md](AGENTS.md) - Complete developer guide (commands, conventions, workflows)
-2. [RATBOT4_PLAN.md](RATBOT4_PLAN.md) - Current implementation strategy and lessons learned
+2. [scaffold/RATBOT6_README.md](scaffold/RATBOT6_README.md) - Current bot architecture and tuning
 3. [SUCCESS_CRITERIA.md](SUCCESS_CRITERIA.md) - How to measure bot performance
 4. [.env.example](.env.example) - Configuration options
 
@@ -258,4 +255,4 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ---
 
-Status: Active development | Engine: v1.0.6 | Bot: ratbot4
+Status: Active development | Engine: v1.0.6 | Bot: ratbot6

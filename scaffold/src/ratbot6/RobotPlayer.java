@@ -6,12 +6,28 @@ import java.util.Random;
 /**
  * Ratbot6 - Value Function Architecture
  *
- * <p>Philosophy: Intelligence in the algorithm, not in roles. Every rat uses a single unified value
- * function to decide what to do. "Roles" emerge from game state, not from assignment.
+ * <h2>Philosophy</h2>
  *
- * <p>Target: ~750 lines (vs ratbot5's 3500 lines)
+ * Intelligence in the algorithm, not in roles. Every rat uses a single unified value function to
+ * decide what to do. "Roles" emerge from game state, not from assignment.
  *
- * @see RATBOT6_DESIGN.md for full design documentation
+ * <h2>Key Features</h2>
+ *
+ * <ul>
+ *   <li>Unified value function for target selection
+ *   <li>Squeak-based enemy king position sharing
+ *   <li>Smart spawn direction (toward enemy)
+ *   <li>Charge mode for attacking enemy king through traps
+ *   <li>King cat evasion with proactive avoidance
+ *   <li>Focus fire coordination via shared array
+ * </ul>
+ *
+ * <h2>Performance</h2>
+ *
+ * Optimized for bytecode efficiency with indexed loops, cached values, and minimal object
+ * allocation.
+ *
+ * @see scaffold/RATBOT6_README.md for full documentation
  */
 public class RobotPlayer {
 
@@ -26,14 +42,13 @@ public class RobotPlayer {
   private static final int SLOT_ECONOMY_MODE = 5;
   private static final int SLOT_FOCUS_TARGET = 6;
   private static final int SLOT_FOCUS_HP = 7;
-  private static final int SLOT_ROUND = 8;
+  // SLOT 8 reserved for future use
   private static final int SLOT_ENEMY_KING_ROUND = 9; // Round when enemy king was last seen
 
   // ========================================================================
   // SQUEAK CONSTANTS
   // ========================================================================
   private static final int SQUEAK_TYPE_ENEMY_KING = 1;
-  // PERF: SQUEAK_TYPE_MINE removed - not used
   private static final int SQUEAK_THROTTLE_ROUNDS = 10; // Min rounds between squeaks
   private static final int MAX_SQUEAKS_TO_READ = 5; // Limit squeaks processed per turn
 
@@ -68,8 +83,7 @@ public class RobotPlayer {
   // BEHAVIORAL CONSTANTS
   // ========================================================================
   private static final int DISTANCE_WEIGHT_INT = 15; // Integer weight for distance
-  private static final int ANTI_CLUMP_PENALTY = 50; // Penalty for tiles with allies
-  private static final int SPAWN_CHEESE_RESERVE = 100; // Aggressive spawning - kill fast!
+  private static final int SPAWN_CHEESE_RESERVE = 100; // Aggressive spawning
   private static final int FORWARD_MOVE_BONUS = 20; // Bonus for forward movement
 
   // ========================================================================
@@ -81,7 +95,7 @@ public class RobotPlayer {
   // ========================================================================
   // CAT CONSTANTS
   // ========================================================================
-  private static final int CAT_DANGER_RADIUS_SQ = 100; // 10 tiles - flee range (increased from 36)
+  private static final int CAT_DANGER_RADIUS_SQ = 100; // 10 tiles - flee range
   private static final int CAT_CAUTION_RADIUS_SQ = 169; // 13 tiles - avoid moving toward cat
   private static final int CAT_POUNCE_RANGE_SQ = 9; // 3 tiles - instant kill range
 
@@ -132,12 +146,12 @@ public class RobotPlayer {
   private static Team cachedOurTeam;
   private static Team cachedEnemyTeam;
 
-  // PERF: Cache current location to avoid repeated rc.getLocation() calls
+  // Cached current location (updated each turn)
   private static MapLocation myLoc;
   private static int myLocX;
   private static int myLocY;
 
-  // PERF: Cached king coordinates to avoid MapLocation allocation
+  // Cached king coordinates
   private static int cachedOurKingX;
   private static int cachedOurKingY;
   private static int cachedEnemyKingX;
@@ -179,9 +193,6 @@ public class RobotPlayer {
   // Initialization flag
   private static boolean initialized = false;
 
-  // Cached map size flag (set once during init)
-  private static boolean isLargeMap = false;
-
   // Cooperation mode cached at init
   private static boolean cachedIsCooperation = false;
 
@@ -191,8 +202,6 @@ public class RobotPlayer {
 
   // Cat trap count
   private static int catTrapCount = 0;
-
-  // PERF: Mine tracking removed - not worth bytecode
 
   // Cat tracking for king and baby rats
   private static MapLocation lastKnownCatLoc = null;
@@ -249,10 +258,6 @@ public class RobotPlayer {
     cachedOurTeam = rc.getTeam();
     cachedEnemyTeam = cachedOurTeam.opponent();
 
-    // Cache map size for interceptor ratio decision
-    int mapArea = rc.getMapWidth() * rc.getMapHeight();
-    isLargeMap = mapArea > 2500; // 50x50+
-
     // Cache cooperation mode - affects trap placement strategy
     cachedIsCooperation = rc.isCooperation();
 
@@ -292,27 +297,26 @@ public class RobotPlayer {
     cachedCarryingCheese = rc.getRawCheese() > 0;
     cachedOurCheese = rc.getGlobalCheese();
 
-    // Read our king position from shared array - avoid allocation
+    // Read our king position from shared array
     cachedOurKingX = rc.readSharedArray(SLOT_OUR_KING_X);
     cachedOurKingY = rc.readSharedArray(SLOT_OUR_KING_Y);
     if (cachedOurKingX > 0 || cachedOurKingY > 0) {
-      // PERF: Only allocate if position changed
+      // Only allocate if position changed
       if (cachedOurKingLoc == null
           || cachedOurKingLoc.x != cachedOurKingX
           || cachedOurKingLoc.y != cachedOurKingY) {
         cachedOurKingLoc = new MapLocation(cachedOurKingX, cachedOurKingY);
       }
-      // PERF: Inline distanceSquared calculation
       int dx = myLocX - cachedOurKingX;
       int dy = myLocY - cachedOurKingY;
       cachedDistToOurKing = dx * dx + dy * dy;
     }
 
-    // Read enemy king position from shared array - avoid allocation
+    // Read enemy king position from shared array
     cachedEnemyKingX = rc.readSharedArray(SLOT_ENEMY_KING_X);
     cachedEnemyKingY = rc.readSharedArray(SLOT_ENEMY_KING_Y);
     if (cachedEnemyKingX > 0 || cachedEnemyKingY > 0) {
-      // PERF: Only allocate if position changed
+      // Only allocate if position changed
       if (cachedEnemyKingLoc == null
           || cachedEnemyKingLoc.x != cachedEnemyKingX
           || cachedEnemyKingLoc.y != cachedEnemyKingY) {
@@ -359,10 +363,9 @@ public class RobotPlayer {
   // VALUE FUNCTION (Integer Arithmetic)
   // ========================================================================
 
-  /** Score a potential target using INTEGER arithmetic. Higher score = higher priority. */
+  /** Score a potential target using integer arithmetic. Higher score = higher priority. */
   private static int scoreTarget(int targetType, int distanceSq) {
     int baseValue = getBaseValue(targetType);
-    // Integer division - no floats!
     return (baseValue * 1000) / (1000 + distanceSq * DISTANCE_WEIGHT_INT);
   }
 
@@ -401,9 +404,8 @@ public class RobotPlayer {
   }
 
   /**
-   * Score all visible targets and find the best one. Results stored in static fields to avoid
-   * allocation. Uses cheeseBuffer/cheeseCount for cheese locations. PERF: Uses indexed loops, early
-   * exits, and inline calculations.
+   * Score all visible targets and find the best one. Results stored in static fields. Uses
+   * cheeseBuffer/cheeseCount for cheese locations.
    */
   private static void scoreAllTargets(RobotController rc, RobotInfo[] enemies)
       throws GameActionException {
@@ -411,11 +413,10 @@ public class RobotPlayer {
     cachedBestTargetType = TARGET_NONE;
     cachedBestScore = Integer.MIN_VALUE;
 
-    // PERF: Use cached location
     int meX = myLocX;
     int meY = myLocY;
 
-    // CRITICAL FIX: Check for VISIBLE enemy king FIRST - use ACTUAL location!
+    // Check for VISIBLE enemy king FIRST - use actual location!
     MapLocation actualEnemyKingLoc = null;
     int enemyLen = enemies.length;
     for (int i = enemyLen; --i >= 0; ) {
@@ -428,11 +429,11 @@ public class RobotPlayer {
       }
     }
 
-    // PERF: EARLY EXIT - If we can SEE the enemy king, just target it!
+    // Early exit - if we can see the enemy king, just target it!
     if (actualEnemyKingLoc != null) {
       cachedBestTarget = actualEnemyKingLoc;
       cachedBestTargetType = TARGET_ENEMY_KING;
-      cachedBestScore = 1000; // High priority
+      cachedBestScore = 1000;
       return;
     }
 
@@ -444,7 +445,6 @@ public class RobotPlayer {
 
     // Score enemy king
     if (enemyKingTarget != null) {
-      // PERF: Inline distance calculation
       int dx = meX - enemyKingTarget.x;
       int dy = meY - enemyKingTarget.y;
       int distSq = dx * dx + dy * dy;
@@ -461,7 +461,7 @@ public class RobotPlayer {
       }
     }
 
-    // Score visible enemy rats - PERF: indexed loop
+    // Score visible enemy rats
     int focusId = rc.readSharedArray(SLOT_FOCUS_TARGET);
     for (int i = enemyLen; --i >= 0; ) {
       RobotInfo enemy = enemies[i];
@@ -472,14 +472,14 @@ public class RobotPlayer {
       int distSq = dx * dx + dy * dy;
       int score = scoreTarget(TARGET_ENEMY_RAT, distSq);
 
-      // PERF: Inline isFocusTarget
+      // Bonus for focus fire target
       if (focusId > 0 && (enemy.getID() & 1023) == focusId) {
         score += FOCUS_FIRE_BONUS * 1000 / (1000 + distSq * DISTANCE_WEIGHT_INT);
       }
 
-      // PERF: Use bit shift for division by 3 approximation (multiply by 0.33)
+      // Reduce enemy rat priority in all-in mode
       if (allInMode) {
-        score = (score * 11) >> 5; // ~0.34
+        score = (score * 11) >> 5;
       }
 
       if (score > cachedBestScore) {
@@ -489,7 +489,7 @@ public class RobotPlayer {
       }
     }
 
-    // Score cheese (skip if all-in mode) - PERF: removed mine proximity loop
+    // Score cheese (skip if all-in mode)
     if (!allInMode) {
       for (int i = cheeseCount; --i >= 0; ) {
         MapLocation cheese = cheeseBuffer[i];
@@ -513,7 +513,7 @@ public class RobotPlayer {
       int distSq = dx * dx + dy * dy;
       int score = scoreTarget(TARGET_DELIVERY, distSq);
       if (allInMode) {
-        score >>= 1; // PERF: bit shift for /2
+        score >>= 1; // Reduce delivery priority in all-in mode
       }
       if (score > cachedBestScore) {
         cachedBestScore = score;
@@ -568,7 +568,7 @@ public class RobotPlayer {
     return false;
   }
 
-  /** Attack enemies, prioritizing ENEMY KING FIRST, then focus fire target. PERF: indexed loops */
+  /** Attack enemies, prioritizing enemy king first, then focus fire target. */
   private static boolean tryAttack(RobotController rc, RobotInfo[] enemies, int focusTargetId)
       throws GameActionException {
     if (!rc.isActionReady()) return false;
@@ -598,7 +598,7 @@ public class RobotPlayer {
 
       int score = 0;
 
-      // PERF: Inline isFocusTarget
+      // Bonus for focus fire target
       if (focusTargetId > 0 && (enemy.getID() & 1023) == focusTargetId) {
         score += 5000;
       }
@@ -687,9 +687,7 @@ public class RobotPlayer {
   // FOCUS FIRE
   // ========================================================================
 
-  // PERF: isFocusTarget inlined everywhere it was used, method removed
-
-  /** King updates the focus fire target. PERF: indexed loop, inline Math.min */
+  /** King updates the focus fire target. */
   private static void updateFocusFireTarget(RobotController rc, RobotInfo[] enemies)
       throws GameActionException {
     RobotInfo bestTarget = null;
@@ -711,9 +709,9 @@ public class RobotPlayer {
     }
 
     if (bestTarget != null) {
-      rc.writeSharedArray(SLOT_FOCUS_TARGET, bestTarget.getID() & 1023); // PERF: bitwise AND
+      rc.writeSharedArray(SLOT_FOCUS_TARGET, bestTarget.getID() & 1023);
       int hp = bestTarget.getHealth();
-      rc.writeSharedArray(SLOT_FOCUS_HP, hp < 1023 ? hp : 1023); // PERF: inline min
+      rc.writeSharedArray(SLOT_FOCUS_HP, hp < 1023 ? hp : 1023);
     }
   }
 
@@ -739,14 +737,13 @@ public class RobotPlayer {
     Direction toTarget = me.directionTo(target);
     int distToTarget = me.distanceSquaredTo(target);
 
-    // CRITICAL: When close to enemy king, IGNORE TRAPS and charge!
-    // It's worth 50 trap damage to kill the king!
-    // Charge if we're within 4 tiles of the enemy king location
+    // CHARGE MODE: When close to enemy king, ignore traps and attack!
+    // It's worth 50 trap damage to kill the king.
     boolean chargeMode =
         cachedEnemyKingLoc != null && me.distanceSquaredTo(cachedEnemyKingLoc) <= 16;
 
     if (!bug2WallFollowing) {
-      // CHARGE MODE: When close to enemy king, just move directly!
+      // In charge mode, move directly toward enemy king
       if (chargeMode) {
         if (rc.canMove(toTarget)) {
           rc.move(toTarget);
@@ -827,7 +824,7 @@ public class RobotPlayer {
     }
   }
 
-  /** Score movement directions and return the best one. PERF: indexed loop, inline distance */
+  /** Score movement directions and return the best one. */
   private static Direction getBestMoveDirection(RobotController rc, MapLocation target)
       throws GameActionException {
     Direction facing = rc.getDirection();
@@ -838,12 +835,10 @@ public class RobotPlayer {
     Direction bestDir = null;
     int bestScore = Integer.MIN_VALUE;
 
-    // PERF: Indexed loop over DIRECTIONS
     for (int i = 8; --i >= 0; ) {
       Direction dir = DIRECTIONS[i];
       if (!canMoveSafely(rc, dir)) continue;
 
-      // PERF: Inline distance calculation
       int newX = myLocX + dir.dx;
       int newY = myLocY + dir.dy;
       int dx = newX - targetX;
@@ -855,11 +850,8 @@ public class RobotPlayer {
       if (dir == facing) {
         score += FORWARD_MOVE_BONUS;
       } else if (dir == facing.rotateLeft() || dir == facing.rotateRight()) {
-        score += FORWARD_MOVE_BONUS >> 1; // PERF: bit shift
+        score += FORWARD_MOVE_BONUS >> 1;
       }
-
-      // Anti-clumping - skip sense check for speed, just penalize
-      // PERF: Removed rc.senseRobotAtLocation call (expensive)
 
       // Prefer directions closer to target direction
       int angleDiff = getAngleDifference(dir, toTarget);
@@ -933,15 +925,15 @@ public class RobotPlayer {
     }
   }
 
-  /** Returns angle difference in degrees (0-180). PERF: inline Math.abs */
+  /** Returns angle difference in degrees (0-180). */
   private static int getAngleDifference(Direction a, Direction b) {
     int diff = a.ordinal() - b.ordinal();
-    if (diff < 0) diff = -diff; // PERF: inline abs
+    if (diff < 0) diff = -diff;
     if (diff > 4) diff = 8 - diff;
     return diff * 45;
   }
 
-  /** PERF: Calculate direction from delta without MapLocation allocation */
+  /** Calculate direction from delta coordinates. */
   private static Direction directionFromDelta(int dx, int dy) {
     if (dx > 0) {
       if (dy > 0) return Direction.NORTHEAST;
@@ -962,7 +954,7 @@ public class RobotPlayer {
   // CAT HANDLING
   // ========================================================================
 
-  /** Check if any cats are dangerous nearby. PERF: indexed loop */
+  /** Check if any cats are nearby. */
   private static RobotInfo findDangerousCat(RobotInfo[] neutrals) {
     for (int i = neutrals.length; --i >= 0; ) {
       RobotInfo neutral = neutrals[i];
@@ -971,25 +963,6 @@ public class RobotPlayer {
       }
     }
     return null;
-  }
-
-  /** Flee from cat - highest priority. */
-  private static void fleeFromCat(RobotController rc, RobotInfo cat) throws GameActionException {
-    if (!rc.isMovementReady()) return;
-
-    MapLocation me = rc.getLocation();
-    Direction awayFromCat = cat.getLocation().directionTo(me);
-
-    if (rc.canMove(awayFromCat)) {
-      rc.move(awayFromCat);
-      return;
-    }
-
-    Direction left = awayFromCat.rotateLeft();
-    Direction right = awayFromCat.rotateRight();
-
-    if (rc.canMove(left)) rc.move(left);
-    else if (rc.canMove(right)) rc.move(right);
   }
 
   /**
@@ -1005,8 +978,8 @@ public class RobotPlayer {
     int bestScore = Integer.MIN_VALUE;
 
     // Score all 8 directions
-    for (Direction dir : DIRECTIONS) {
-      if (dir == Direction.CENTER) continue;
+    for (int i = 8; --i >= 0; ) {
+      Direction dir = DIRECTIONS[i];
 
       MapLocation newLoc = me.add(dir);
 
@@ -1070,19 +1043,28 @@ public class RobotPlayer {
 
     // Fallback: try any direction that increases distance
     Direction awayFromCat = catLoc.directionTo(me);
-    Direction[] tryDirs = {
-      awayFromCat,
-      awayFromCat.rotateLeft(),
-      awayFromCat.rotateRight(),
-      awayFromCat.rotateLeft().rotateLeft(),
-      awayFromCat.rotateRight().rotateRight()
-    };
-
-    for (Direction dir : tryDirs) {
-      if (rc.canMove(dir)) {
-        rc.move(dir);
-        return true;
-      }
+    // Fallback: try directions away from cat
+    if (rc.canMove(awayFromCat)) {
+      rc.move(awayFromCat);
+      return true;
+    }
+    Direction left1 = awayFromCat.rotateLeft();
+    if (rc.canMove(left1)) {
+      rc.move(left1);
+      return true;
+    }
+    Direction right1 = awayFromCat.rotateRight();
+    if (rc.canMove(right1)) {
+      rc.move(right1);
+      return true;
+    }
+    if (rc.canMove(left1.rotateLeft())) {
+      rc.move(left1.rotateLeft());
+      return true;
+    }
+    if (rc.canMove(right1.rotateRight())) {
+      rc.move(right1.rotateRight());
+      return true;
     }
 
     return false;
@@ -1092,16 +1074,13 @@ public class RobotPlayer {
   // INTERCEPTOR BEHAVIOR
   // ========================================================================
 
-  /** Check if this rat should act as interceptor (defend our king). SIMPLE: fixed ratio. */
+  /** Check if this rat should act as interceptor (defend our king). */
   private static boolean shouldIntercept(RobotController rc) {
     // Only 5% interceptors - almost everyone ATTACKS!
     return rc.getID() % 20 == 0;
   }
 
-  /**
-   * Interceptor behavior: patrol near our king, attack enemies, collect cheese. SIMPLE: Guard the
-   * king, attack threats, help economy.
-   */
+  /** Interceptor behavior: patrol near our king, attack enemies, collect cheese. */
   private static void runInterceptor(RobotController rc, RobotInfo[] enemies)
       throws GameActionException {
     MapLocation me = rc.getLocation();
@@ -1125,7 +1104,8 @@ public class RobotPlayer {
     }
 
     // Priority 4: Move toward enemies near our king
-    for (RobotInfo enemy : enemies) {
+    for (int i = enemies.length; --i >= 0; ) {
+      RobotInfo enemy = enemies[i];
       if (cachedOurKingLoc != null
           && enemy.getLocation().distanceSquaredTo(cachedOurKingLoc) < INTERCEPTOR_RANGE_SQ) {
         bug2MoveTo(rc, enemy.getLocation());
@@ -1185,9 +1165,7 @@ public class RobotPlayer {
     int hp = rc.getHealth();
     int round = rc.getRoundNum();
 
-    // PERF: Debug output removed for production
-
-    // CRITICAL: Check for cats FIRST - highest priority escape!
+    // Check for cats FIRST - highest priority escape!
     RobotInfo[] neutrals = rc.senseNearbyRobots(-1, Team.NEUTRAL);
     RobotInfo dangerousCat = findDangerousCat(neutrals);
 
@@ -1212,8 +1190,7 @@ public class RobotPlayer {
 
     RobotInfo[] nearbyEnemies = rc.senseNearbyRobots(-1, cachedEnemyTeam);
 
-    // CRITICAL: Detect damage BEFORE updating lastKingHP!
-    // This flag is used later for spawn decisions
+    // Detect damage BEFORE updating lastKingHP (used for spawn decisions)
     boolean tookDamageThisTurn = hp < lastKingHP;
 
     // Detect invisible attackers by HP loss
@@ -1267,7 +1244,7 @@ public class RobotPlayer {
     }
 
     // 5. Spawn rats when affordable (skip on trap rounds to save action)
-    // CRITICAL: Stop spawning if taking damage and low on cheese - prioritize survival!
+    // Stop spawning if taking damage and low on cheese
     boolean underAttack = tookDamageThisTurn || enemiesNearby;
     int cheeseReserve =
         underAttack
@@ -1335,7 +1312,7 @@ public class RobotPlayer {
     rc.writeSharedArray(SLOT_ECONOMY_MODE, mode);
   }
 
-  /** Broadcast enemy king position if visible. PERF: indexed loop, inline min */
+  /** Broadcast enemy king position if visible. */
   private static void broadcastEnemyKing(RobotController rc, RobotInfo[] enemies)
       throws GameActionException {
     for (int i = enemies.length; --i >= 0; ) {
@@ -1351,15 +1328,33 @@ public class RobotPlayer {
     }
   }
 
-  /** Try to spawn a baby rat. */
+  /** Try to spawn a baby rat TOWARD the enemy king. */
   private static boolean trySpawnRat(RobotController rc) throws GameActionException {
     MapLocation kingLoc = rc.getLocation();
 
+    // Get direction TOWARD enemy king - spawn attackers in that direction!
+    Direction toEnemy = Direction.NORTH;
+    if (cachedEnemyKingLoc != null) {
+      toEnemy = kingLoc.directionTo(cachedEnemyKingLoc);
+      if (toEnemy == Direction.CENTER) toEnemy = Direction.NORTH;
+    }
+
+    // Priority spawn directions: toward enemy first, then adjacent, then away
+    Direction[] spawnPriority = {
+      toEnemy,
+      toEnemy.rotateLeft(),
+      toEnemy.rotateRight(),
+      toEnemy.rotateLeft().rotateLeft(),
+      toEnemy.rotateRight().rotateRight(),
+      toEnemy.opposite().rotateLeft(),
+      toEnemy.opposite().rotateRight(),
+      toEnemy.opposite()
+    };
+
     // Try to spawn at distance 2
     for (int i = 0; i < 8; i++) {
-      Direction dir = DIRECTIONS[i];
+      Direction dir = spawnPriority[i];
       MapLocation spawnLoc = kingLoc.add(dir).add(dir);
-
       if (rc.canBuildRat(spawnLoc)) {
         rc.buildRat(spawnLoc);
         return true;
@@ -1369,11 +1364,8 @@ public class RobotPlayer {
     // Try distance 3 and 4
     for (int dist = 3; dist <= 4; dist++) {
       for (int i = 0; i < 8; i++) {
-        Direction dir = DIRECTIONS[i];
-        int dx = dir.dx * dist;
-        int dy = dir.dy * dist;
-        MapLocation spawnLoc = kingLoc.translate(dx, dy);
-
+        Direction dir = spawnPriority[i];
+        MapLocation spawnLoc = kingLoc.translate(dir.dx * dist, dir.dy * dist);
         if (rc.canBuildRat(spawnLoc)) {
           rc.buildRat(spawnLoc);
           return true;
@@ -1569,7 +1561,8 @@ public class RobotPlayer {
     Direction bestDir = null;
     int bestScore = Integer.MIN_VALUE;
 
-    for (Direction dir : DIRECTIONS) {
+    for (int i = 8; --i >= 0; ) {
+      Direction dir = DIRECTIONS[i];
       MapLocation newLoc = me.add(dir);
       if (!rc.canMove(dir)) continue;
       if (newLoc.distanceSquaredTo(kingSpawnPoint) > KING_SAFE_ZONE_RADIUS_SQ) continue;
@@ -1647,13 +1640,10 @@ public class RobotPlayer {
   private static final MapLocation[] cheeseBuffer = new MapLocation[50];
   private static int cheeseCount = 0;
 
-  /**
-   * Find nearby cheese locations by scanning MapInfo. PERF: indexed loop, removed mine tracking.
-   */
+  /** Find nearby cheese locations by scanning MapInfo. */
   private static void findNearbyCheese(RobotController rc) throws GameActionException {
     MapInfo[] nearbyTiles = rc.senseNearbyMapInfos(myLoc, 20);
     cheeseCount = 0;
-    // PERF: Removed mine tracking - not worth bytecode
 
     int bufLen = cheeseBuffer.length;
     for (int i = nearbyTiles.length; --i >= 0 && cheeseCount < bufLen; ) {
@@ -1668,7 +1658,7 @@ public class RobotPlayer {
   // BABY RAT MAIN LOOP
   // ========================================================================
 
-  /** Baby rat main loop. SIMPLE: Seek and destroy. Get there and attack. Don't stop. */
+  /** Baby rat main loop. Simple: seek and destroy. */
   private static void runBabyRat(RobotController rc) throws GameActionException {
     // Skip turn if being ratnapped
     if (rc.isBeingThrown() || rc.isBeingCarried()) {
@@ -1678,7 +1668,6 @@ public class RobotPlayer {
     // 1. Update game state
     updateGameState(rc);
 
-    // PERF: Use cached location
     MapLocation me = myLoc;
     int round = cachedRound;
     int id = rc.getID();
@@ -1693,8 +1682,8 @@ public class RobotPlayer {
       return;
     }
 
-    // 4. CRITICAL: If close to enemy king location but CAN'T SEE any enemies, TURN TO LOOK!
-    // This is the #1 reason rats fail to attack - they arrive facing the wrong direction
+    // 4. If close to enemy king location but can't see enemies, turn to look
+    // (rats have a vision cone, not 360° vision)
     if (cachedEnemyKingLoc != null && enemies.length == 0) {
       int distToEnemyKing = me.distanceSquaredTo(cachedEnemyKingLoc);
       Direction facing = rc.getDirection();
@@ -1745,9 +1734,7 @@ public class RobotPlayer {
     // 8. Score all targets and find best one
     scoreAllTargets(rc, enemies);
 
-    // PERF: Debug output removed for production
-
-    // 9. MOVE TOWARD TARGET - simple, direct, relentless
+    // 9. Move toward target
     if (cachedBestTarget != null) {
       bug2MoveTo(rc, cachedBestTarget);
     }
@@ -1758,12 +1745,7 @@ public class RobotPlayer {
     // PERF: Removed mine squeaking - not worth bytecode
   }
 
-  // PERF: squeakMineLocation removed - not worth bytecode
-
-  /**
-   * Baby rat updates local cached enemy king position if visible and squeaks to share intel. PERF:
-   * indexed loop, inline min
-   */
+  /** Baby rat updates cached enemy king position if visible and squeaks to share intel. */
   private static void updateEnemyKingFromBabyRat(RobotController rc, RobotInfo[] enemies)
       throws GameActionException {
     for (int i = enemies.length; --i >= 0; ) {
@@ -1779,7 +1761,7 @@ public class RobotPlayer {
         if (round - lastSqueakRound >= SQUEAK_THROTTLE_ROUNDS || lastSqueakID != id) {
           int hp = enemy.getHealth();
           int hpBits = hp / 35;
-          if (hpBits > 15) hpBits = 15; // PERF: inline min
+          if (hpBits > 15) hpBits = 15;
           int squeak =
               (SQUEAK_TYPE_ENEMY_KING << 28) | (enemyLoc.y << 16) | (enemyLoc.x << 4) | hpBits;
           rc.squeak(squeak);
@@ -1795,10 +1777,7 @@ public class RobotPlayer {
   // SQUEAK COMMUNICATION SYSTEM
   // ========================================================================
 
-  /**
-   * King reads squeaks from baby rats and updates shared array with enemy king position. PERF:
-   * avoid allocation, inline min
-   */
+  /** King reads squeaks from baby rats and updates shared array with enemy king position. */
   private static void kingReadSqueaks(RobotController rc) throws GameActionException {
     Message[] squeaks = rc.readSqueaks(-1);
     int len = squeaks.length;
@@ -1824,7 +1803,7 @@ public class RobotPlayer {
         rc.writeSharedArray(SLOT_ENEMY_KING_HP, hp < 1023 ? hp : 1023);
         rc.writeSharedArray(SLOT_ENEMY_KING_ROUND, round);
 
-        // PERF: Only allocate if position changed
+        // Only allocate if position changed
         if (cachedEnemyKingLoc == null || cachedEnemyKingLoc.x != x || cachedEnemyKingLoc.y != y) {
           cachedEnemyKingLoc = new MapLocation(x, y);
         }
@@ -1882,6 +1861,4 @@ public class RobotPlayer {
       }
     }
   }
-
-  // PERF: Mine detection removed - not worth bytecode
 }
