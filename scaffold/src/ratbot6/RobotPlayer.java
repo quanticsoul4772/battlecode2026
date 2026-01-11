@@ -149,6 +149,7 @@ public class RobotPlayer {
   private static MapLocation cachedEnemyKingLoc;
   private static int cachedEnemyKingHP;
   private static int cachedDistToOurKing;
+  private static int cachedDistToEnemyKing; // OPTIMIZATION: Cache distance to enemy king
   private static int cachedEconomyMode; // 0=normal, 1=low, 2=critical
   private static Team cachedOurTeam;
   private static Team cachedEnemyTeam;
@@ -383,6 +384,16 @@ public class RobotPlayer {
 
     // Economy mode from cached array
     cachedEconomyMode = sharedArrayCache[SLOT_ECONOMY_MODE];
+
+    // ========== CACHE DISTANCE TO ENEMY KING (Bytecode Optimization) ==========
+    // Calculate once per turn, reuse throughout (saves ~15 bytecode × 5-8 calls = 75-120 bytecode)
+    if (cachedEnemyKingLoc != null) {
+      int dx = myLocX - cachedEnemyKingLoc.x;
+      int dy = myLocY - cachedEnemyKingLoc.y;
+      cachedDistToEnemyKing = dx * dx + dy * dy;
+    } else {
+      cachedDistToEnemyKing = Integer.MAX_VALUE;
+    }
   }
 
   /** Estimate enemy king position based on map symmetry. */
@@ -750,23 +761,29 @@ public class RobotPlayer {
     }
 
     // Then score other targets
+    // OPTIMIZATION: Cache enemy fields to avoid repeated getters (saves ~8 bytecode × 15-25 =
+    // 120-200)
     RobotInfo bestTarget = null;
     int bestScore = Integer.MIN_VALUE;
 
     for (int i = len; --i >= 0; ) {
       RobotInfo enemy = enemies[i];
+      // OPTIMIZATION: Cache all fields once per enemy
       MapLocation loc = enemy.getLocation();
+      int enemyId = enemy.getID();
+      int hp = enemy.getHealth();
+
       if (!rc.canAttack(loc)) continue;
 
       int score = 0;
 
       // Bonus for focus fire target
-      if (focusTargetId > 0 && (enemy.getID() & 1023) == focusTargetId) {
+      if (focusTargetId > 0 && (enemyId & 1023) == focusTargetId) {
         score += 5000;
       }
 
       // Prioritize wounded enemies
-      score += 1000 - enemy.getHealth();
+      score += 1000 - hp;
 
       if (score > bestScore) {
         bestScore = score;
@@ -801,9 +818,10 @@ public class RobotPlayer {
   private static boolean tryCollectCheese(RobotController rc) throws GameActionException {
     if (!rc.isActionReady()) return false;
 
-    MapLocation me = rc.getLocation();
+    MapLocation me = myLoc; // OPTIMIZATION: Use cached location (saves ~15 bytecode)
 
-    for (int i = 0; i < cheeseCount; i++) {
+    // OPTIMIZATION: Backward loop (saves ~3 bytecode)
+    for (int i = cheeseCount; --i >= 0; ) {
       MapLocation cheese = cheeseBuffer[i];
       if (me.distanceSquaredTo(cheese) <= 2) {
         if (rc.canPickUpCheese(cheese)) {
@@ -816,12 +834,12 @@ public class RobotPlayer {
     return false;
   }
 
-  /** Dig dirt blocking our path. */
+  /** Dig dirt blocking our path. OPTIMIZATION: Uses cached myLoc and cachedMyDirection. */
   private static boolean tryDigDirt(RobotController rc) throws GameActionException {
     if (!rc.isActionReady()) return false;
 
-    Direction facing = rc.getDirection();
-    MapLocation me = rc.getLocation();
+    Direction facing = cachedMyDirection; // OPTIMIZATION: Use cached direction (saves ~10 bytecode)
+    MapLocation me = myLoc; // OPTIMIZATION: Use cached location (saves ~15 bytecode)
     MapLocation ahead = me.add(facing);
 
     if (rc.canRemoveDirt(ahead)) {
@@ -901,8 +919,8 @@ public class RobotPlayer {
 
     // CHARGE MODE: When close to enemy king, ignore traps and attack!
     // It's worth 50 trap damage to kill the king.
-    boolean chargeMode =
-        cachedEnemyKingLoc != null && me.distanceSquaredTo(cachedEnemyKingLoc) <= 16;
+    // OPTIMIZATION: Use cached distance (saves ~15 bytecode)
+    boolean chargeMode = cachedEnemyKingLoc != null && cachedDistToEnemyKing <= 16;
 
     if (!bug2WallFollowing) {
       // In charge mode, move directly toward enemy king
@@ -1915,16 +1933,19 @@ public class RobotPlayer {
     findNearbyCheese(rc);
 
     // 3. Check if interceptor (small % to defend king)
-    if (shouldIntercept(rc)) {
+    // OPTIMIZATION: Inline shouldIntercept() to avoid method call overhead (saves ~30-50 bytecode)
+    boolean isInterceptor = (cachedMyID % 20 == 0); // 5% of rats are interceptors
+    if (isInterceptor) {
       runInterceptor(rc, enemies);
       return;
     }
 
     // 4. If close to enemy king location but can't see enemies, turn to look
     // (rats have a vision cone, not 360° vision)
+    // OPTIMIZATION: Use cached distance (saves ~15 bytecode)
     if (cachedEnemyKingLoc != null && enemies.length == 0) {
-      int distToEnemyKing = me.distanceSquaredTo(cachedEnemyKingLoc);
-      Direction facing = rc.getDirection();
+      int distToEnemyKing = cachedDistToEnemyKing;
+      Direction facing = cachedMyDirection; // OPTIMIZATION: Use cached direction
       Direction toKing = me.directionTo(cachedEnemyKingLoc);
 
       // Turn to face enemy king location when close
