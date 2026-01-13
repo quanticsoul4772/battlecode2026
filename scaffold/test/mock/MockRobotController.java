@@ -171,7 +171,7 @@ public class MockRobotController implements RobotController {
   }
 
   public MapInfo senseMapInfo(MapLocation loc) throws GameActionException {
-    return new MapInfo(loc, false, false, false, gameState.getCheeseAt(loc), null, false);
+    return new MapInfo(loc, false, false, false, gameState.getCheeseAt(loc), TrapType.NONE, false);
   }
 
   public MapLocation[] getAllLocationsWithinRadiusSquared(MapLocation center, int radiusSquared) {

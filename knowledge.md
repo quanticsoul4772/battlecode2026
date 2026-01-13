@@ -33,14 +33,18 @@ cd scaffold
 
 ## Architecture
 
-- **scaffold/src/** - Bot implementations (ratbot, ratbot2-5, lectureplayer)
+- **scaffold/src/** - Bot implementations (ratbot through ratbot7, lectureplayer)
 - **scaffold/test/** - Unit tests (algorithms/, ratbot/, integration/)
 - **claudedocs/** - Game specs (complete_spec.md, quick_reference.md)
 - **scaffold/gradle.properties** - Match configuration (teamA, teamB, maps)
 
-### Current Bot: ratbot5
+### Current Bots
 
-Located in `scaffold/src/ratbot5/RobotPlayer.java` - single-file implementation.
+- **ratbot6** - Current champion (~1,700 lines) - Value function architecture, squeak communication
+- **ratbot7** - In development - Defensive-economic strategy with body blocking
+- **ratbot5** - Previous iteration (~3,500 lines) - Kiting state machine
+
+All bots use single-file `RobotPlayer.java` implementations for bytecode efficiency.
 
 ## Conventions
 
@@ -79,4 +83,5 @@ Located in `scaffold/src/ratbot5/RobotPlayer.java` - single-file implementation.
 - **Game Specs**: claudedocs/complete_spec.md
 - **Quick Reference**: claudedocs/quick_reference.md  
 - **API Docs**: https://play.battlecode.org/bc26/api
+- **Engine Version**: 1.1.0
 - **Discord**: http://bit.ly/battlecode-discord
