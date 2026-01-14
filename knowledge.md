@@ -40,11 +40,21 @@ cd scaffold
 
 ### Current Bots
 
-- **ratbot6** - Current champion (~1,700 lines) - Value function architecture, squeak communication
-- **ratbot7** - In development - Defensive-economic strategy with body blocking
-- **ratbot5** - Previous iteration (~3,500 lines) - Kiting state machine
+- **ratbot8** - Current champion (~5,700 lines) - Decoy squeaks, anti-trapping, aggressive spawning
+- **ratbot6** - Previous champion (~1,700 lines) - Value function architecture, squeak communication
+- **ratbot7** - Defensive variant - Body blocking, guardian positioning
+- **ratbot5** - Legacy (~3,500 lines) - Kiting state machine
 
 All bots use single-file `RobotPlayer.java` implementations for bytecode efficiency.
+
+### ratbot8 Key Features
+
+- **Decoy Squeaks**: Lures cats toward enemy territory by squeaking in enemy half
+- **Squeak Suppression**: Prevents squeaks near our king to avoid attracting cats to gatherers
+- **Anti-Crowding**: Rats spread out when >3 friendlies within 2 tiles
+- **Guardian Escape Corridor**: Guardians move perpendicular to clear king's escape path
+- **Target Distribution**: Rats spread across different cheese locations by ID to prevent traffic jams
+- **Aggressive Spawning**: SPAWN_CAP=50, CHEESE_FLOOR=300 tuned for corridor maps
 
 ## Conventions
 
